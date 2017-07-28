@@ -1,0 +1,15 @@
+<source_library>
+  <source name="Disk Component" type="DiffuseSource">
+      <spectrum apply_edisp="false" type="LogParabola">
+        <parameter free="0" max="100000" min="1e-07" name="norm" scale="1e-11" value="1.0" />
+        <parameter free="0" max="5" min="1.2" name="alpha" scale="1" value="1.5" />
+        <parameter free="0" max="3" min="0" name="beta" scale="1" value="0.5" />
+        <parameter free="0" max="500000" min="30" name="Eb" scale="1" value="1000" />
+      </spectrum>
+    <spatialModel file="gauss_01_degree.dat" type="RadialProfile">
+      <parameter free="0" max="10" min="0" name="Normalization" scale="1" value="1" />
+      <parameter free="0" max="360" min="-360" name="RA" scale="1" value="266.417" />
+      <parameter free="0" max="90" min="-90" name="DEC" scale="1" value="-29.0079" />
+    </spatialModel>
+  </source>
+</source_library>

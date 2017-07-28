@@ -1,11 +1,66 @@
+print "initializing..."
+#Math packages, NumPy
 import math
 import numpy as np
-from scipy.special import gammainc
-import pickle
-import pylab as plt
-import pyfits
+from scipy.special import gammainc, erf, gamma
 from math import sin, cos, asin, acos, radians
-from astropy import wcs
+from scipy.misc import factorial
+import scipy
+from scipy.optimize import curve_fit
+
+import pickle
+
+#Plotting packages ie Matplotlib stuff
+import pylab as plt
+from matplotlib import cm, colors
+from matplotlib.pyplot import rc
+from matplotlib import rcParams
+import pyfits
+#from astropy import wcs
+
+#Fermi Science Tools
+from gt_apps import srcMaps
+from gt_apps import evtbin
+from gt_apps import gtexpcube2
+from BinnedAnalysis import *
+#from UnbinnedAnalysis import *
+from SummedLikelihood import *
+import pyLikelihood as pyLike
+#import residmaps
+
+from astropy.io import fits
+from gt_apps import evtbin, filter
+print "Done!"
+
+def setup_plot_env():
+    #Set up figure
+    #Plotting parameters
+    fig_width = 8   # width in inches
+    fig_height = 8  # height in inches
+    fig_size =  [fig_width, fig_height]
+    rcParams['font.family'] = 'serif'
+    rcParams['font.weight'] = 'bold'
+    rcParams['axes.labelsize'] = 20
+    rcParams['font.size'] = 20
+    rcParams['axes.titlesize'] =16
+    rcParams['legend.fontsize'] = 16
+    rcParams['xtick.labelsize'] =20
+    rcParams['ytick.labelsize'] =20
+    rcParams['figure.figsize'] = fig_size
+    rcParams['xtick.major.size'] = 8
+    rcParams['ytick.major.size'] = 8
+    rcParams['xtick.minor.size'] = 4
+    rcParams['ytick.minor.size'] = 4
+    rcParams['xtick.major.pad'] = 8
+    rcParams['ytick.major.pad'] = 8
+    
+    rcParams['figure.subplot.left'] = 0.16
+    rcParams['figure.subplot.right'] = 0.92
+    rcParams['figure.subplot.top'] = 0.90
+    rcParams['figure.subplot.bottom'] = 0.12
+    rcParams['text.usetex'] = True
+    rc('text.latex', preamble=r'\usepackage{amsmath}')
+setup_plot_env()
 
 
 #Strictly finds the Poisson upper limit (problematic for large counts)
@@ -15,26 +70,19 @@ def upper_limit(N,conf,b):
     #First, calculate denominator
     denom=0.
     for m in range(0,N+1):
-            if m>10:
-                denom+=(b*math.e/m)**m/math.sqrt(2*math.pi*m)
-            else:
-                denom+=b**m/math.factorial(m)
+            denom+=b**m/math.factorial(m)
     s = 0.
     numer=denom
     while math.exp(-1.0*s)*numer/denom>conf:
         #Calculate numerator
         numer=0.0
         for m in range(0,N+1):
-            if m>10:
-                numer+=((s+b)*math.e/m)**m/math.sqrt(2*math.pi*m)
-            else:
-                numer+=(s+b)**m/math.factorial(m)
-    
-        s+= d_box_flux
+            numer+=(s+b)**m/math.factorial(m)
+        s+= 0.01
     print "Upper limit is " + str(s)
     return s
-    
-def factorial(x):
+
+def factorial2(x):
 	result = 1.
 	while x>0:
 		result *= x
@@ -47,8 +95,9 @@ def gamma(x):
 		return np.sqrt(np.pi)*factorial(2*(x-0.5))/(4**(x-0.5)*factorial((x-0.5)))
 def chi_square_pdf(k,x):
     return 1.0/(2**(k/2)*gamma(k/2))*x**(k/2-1)*np.exp(-0.5*x)
-def chi_square_cdf(k,x): 
+def chi_square_cdf(k,x):
     return gammainc(k/2,x/2)
+    
 def chi_square_quantile(k,f):
     #Essentially do a numerical integral, until the value is greater than f
     integral_fraction = 0.0
@@ -56,7 +105,7 @@ def chi_square_quantile(k,f):
     dx = 0.01
     while chi_square_cdf(k,x)<f:
         x += dx
-    return x  
+    return x
 def upper_limit_pdg(N,alpha,b):
     dof = 2*(N+1)
     p = 1-alpha*(1-(chi_square_cdf(dof, 2*b)))
@@ -66,10 +115,7 @@ def get_integral(x,g):
     if len(x) != len(g):
         print "Integral must be performed with equal-sized arrays!"
         print "Length of x is " + str(len(x)) + " Length of g is " + str(len(g))
-    thesum = 0.0
-    for i in range(len(g)-1):
-        thesum += 0.5*(g[i]+g[i+1])*(x[i+1]-x[i])
-    return thesum
+    return sum(np.diff(x)*0.5*(g[0:len(g)-1]+g[1:len(g)]))
 
 def chisquared(data,theory):
     thesum = 0.0
@@ -87,35 +133,31 @@ def loglikelihood(counts,model_counts,box):
         mu0 = model_counts[i]
         #background+signal counts
         mu1 = model_counts[i]+box[i]
-        #Do we need stirling's approximation?                
-        if m>20:	
+        #Do we need stirling's approximation?
+        if m>20:
             f0 += m-mu0+m*np.log(mu0/m)-0.5*np.log(m)-np.log(np.sqrt(2*np.pi))
             f1 += m-mu1+m*np.log(mu1/m)-0.5*np.log(m)-np.log(np.sqrt(2*np.pi))
         else:
             f0 += np.log((mu0**m)*np.exp(-1.0*mu0)/factorial(m))
             f1 += np.log((mu1**m)*np.exp(-1.0*mu1)/factorial(m))
-    return 2*(f0-f1)	
+    return 2*(f0-f1)
 def sigma_given_p(p):
     x = np.linspace(-200, 200, 50000)
     g = 1.0/np.sqrt(2*np.pi)*np.exp(-(x**2)/2.)
     c = np.cumsum(g)/sum(g)
     value = x[np.argmin(np.abs(c-(1.0-p)))]
     return value
-
 def pvalue_given_chi2(x, k):
     y = np.arange(0., 1000.0, 0.1)
     g = (y**(k/2.-1.0)*np.exp(-0.5*y))/(2.**(k/2.0)*gamma(k/2.))
     initial_pos = np.argmin(np.abs(y-x))
     return get_integral(y[initial_pos:], g[initial_pos:])
-
 #Stupid function bc apparently numpy can't do this natively??
 def multiply_multidimensional_array(vec,cube):
     result = np.zeros((cube.shape))
     for i in range(len(vec)):
         result[i,:,:] = vec[i]*cube[i,:,:]
     return result
-
-
 #Energy resolution (E Disp class 1- pretty close to the total)
 def e_res(E):
     energy = np.array([31.718504,54.31288,95.86265,171.82704,307.93054,535.1251,944.0604,1716.8848,3074.5315,5339.1763,9559.056,17111.936,29704.664,53986.227,93706.14,167702.28,300152.7,520977.8,931974.8,1690808.0,2974747.2])
@@ -127,7 +169,6 @@ def e_res(E):
     else:
         frac = (E-energy[closest-1])/(energy[closest]-energy[closest-1])
         return res[closest-1]+frac*(res[closest]-res[closest-1])
-          
 def psf(E):
     energy = np.array([9.91152,17.36871,31.150045,54.59528,96.42895,171.62605,303.14316,539.58026,967.85913,1709.5619,3066.256,5374.1895,9712.058,17151.041,29366.348,52649.074,92947.98,167911.25,298723.0,527422.3,952855.0,1682382.6,2993103.8])
     psf = np.array([22.122343,17.216175,11.960119,8.108732,5.279108,3.5216076,2.2375877,1.3988715,0.8535155,0.53358656,0.347393,0.23173566,0.17039458,0.12837319,0.112826064,0.10581638,0.10334797,0.10426899,0.10101496,0.09097172,0.08671612,0.07683781,0.073241934])
@@ -138,279 +179,347 @@ def psf(E):
     else:
         frac = (E-energy[closest-1])/(energy[closest]-energy[closest-1])
         return psf[closest-1]+frac*(psf[closest]-psf[closest-1])
-    
 #Just a gaussian function, representing the energy dispersion of the detector
 def blur(x,offset,sigma):
-    return np.exp(-1.0*(x-offset)**2/(2*sigma**2))/np.sqrt(2*np.pi*sigma**2)    
+    return np.exp(-1.0*(x-offset)**2/(2*sigma**2))/np.sqrt(2*np.pi*sigma**2)
+
+def make_random(x,g):
+    cdf = np.cumsum(g)/np.sum(g)
+    return x[np.argmin(np.abs(cdf-np.random.rand(1)[0]))]
+def get_integral(x,g):
+    if len(x) != len(g):
+        print "Integral must be performed with equal-sized arrays!"
+        print "Length of x is " + str(len(x)) + " Length of g is " + str(len(g))
+    return sum(np.diff(x)*0.5*(g[0:len(g)-1]+g[1:len(g)]))
+
+    
+def skew_gaussian(x, norm, x_bar, sigma, alpha):
+    return 2.0*norm*np.exp(-1.0*(x-x_bar)**2/(2.0*sigma**2))*(1+erf(alpha*(x-x_bar)/sigma/np.sqrt(2)))
     
 num_ebins = 51
-energies = 10**np.linspace(np.log10(300),np.log10(300000),num_ebins)
+energies = 10**np.linspace(np.log10(6000),np.log10(800000),num_ebins)
 ebin_widths = np.diff(energies)
+
+
+
+def edit_box_xml(energy, box_flux):
+    #Choose between a wide and narrow box
+    box_beginning = energy-100# -> 100 MeV wide box
     
-#We need to account for exposure. How to do this?
-#We have counts in each bin, model for counts in each bin
-#Also have model of box- in flux
-#Need to multiply box by value of exposure in each bin, to get expected number of counts
+    #Edit box_spectrum.dat
+    file = open('box_spectrum.dat','w')
+    #What's the normalization constant here?
+    #Total flux is E_edge*function value
+    #Function_value = total_flux/E_edge
+    x_fine_grid = np.linspace(0.0, 800000, 10000)
+    n_leading_zeros = int(np.argmin(np.abs(x_fine_grid-box_beginning)))
+    n_trailing_zeros = 10000-int(np.argmin(np.abs(x_fine_grid-energy)))
+    n_box_width = int(10000-n_leading_zeros-n_trailing_zeros)
+    pure_box = np.concatenate([np.zeros((n_leading_zeros)),np.concatenate([1.0+np.zeros((n_box_width)),np.zeros((n_trailing_zeros))])])
 
-#What's the exposure as a function of energy?
-exposure_file = pyfits.open('very_center_exposure.fits')
-exp_energies = np.zeros((len(exposure_file[1].data)))
-for i in range(len(exp_energies)):
-    exp_energies[i] = float(exposure_file[1].data[i][0])
-def get_exposure(E):
-    index = np.argmin(np.abs(exp_energies-E))
-    return exposure_file[0].data[index][52][52]
+    #Sigma here is the absolute energy resolution as a function of energy
+    sigma = e_res(energy)*energy*10000./800000.0
 
-exposures = np.zeros(len(energies))
-for i in range(len(energies)):
-    exposures[i] = get_exposure(energies[i])
+    dispersion = blur(np.linspace(0,6*sigma,6*sigma),3*sigma,sigma)
+    convolved_pure_box = np.convolve(pure_box, dispersion,'same')
+    for i in range(len(x_fine_grid)):
+        file.write(str(x_fine_grid[i])+" " + str(max(convolved_pure_box[i], 10.**-35))+"\n")
+    file.close()
 
-#Load the results of the Science Tools fit, and set up arrays for later
-#counts_file = open('very_center_counts.pk1','rb')
-#counts_file = open('very_center_ccube.pk1','rb')
-#counts = pickle.load(counts_file)
-#counts_file.close()
+    file = open('xmlmodel_fixed.xml','r')
+    non_box_string = []
+    for line in file:
+        non_box_string.append(line)
+    file.close()
 
-counts_cube_file = pyfits.open('very_center_ccube.fits')
-counts = np.zeros((50,10,10))
-for i in range(50):
-    for j in range(10):
-        for k in range(10):
-            counts[i,j,k] = float(counts_cube_file[0].data[i][j][k])
+    box_string = []
+    box_string.append(' <source name="Box_Component" type="PointSource">\n')
+    box_string.append('   <spectrum file="box_spectrum.dat" type="FileFunction">\n')
+    box_string.append('     <parameter free="0" max="1e5" min="1e-35" name="Normalization" scale="1" value="'+str(box_flux/(energy-box_beginning))+'"/>\n')
+    box_string.append('   </spectrum>\n')
+    box_string.append('  <spatialModel type="SkyDirFunction">\n')
+    box_string.append('     <parameter free="0" max="360" min="-360" name="RA" scale="1" value="266.417" />\n')
+    box_string.append('     <parameter free="0" max="90" min="-90" name="DEC" scale="1" value="-29.0079" />\n')
+    box_string.append('   </spatialModel>\n')
+    box_string.append(' </source>\n')
 
-#Calculating an upper limit, using a likelihood ratio test
-def likelihood_upper_limit(counts,model_counts):
-    box_flux = np.zeros((num_ebins))
-    for i in range(num_ebins):        
-        box_counts = box_counts_matrix[i,:]*exposures/10.**11.
-        if counts[i] != 0:
-            d_box_flux = 0.01*counts[i]/(ebin_widths[i])
-        else:
-            d_box_flux = 0.1/ebin_widths[i]
-        #Find minimum i.e. best fit value
-        while loglikelihood(counts,model_counts,(box_flux[i]+d_box_flux)*box_counts)<loglikelihood(counts,model_counts,box_flux[i]*box_counts):
-            box_flux[i] += d_box_flux
-        box_significance = sigma_given_p(pvalue_given_chi2(loglikelihood(counts,model_counts,box_flux[i]*box_counts),num_ebins-1))
-        while box_significance<2.0:
-            box_significance = sigma_given_p(pvalue_given_chi2(loglikelihood(counts,model_counts,box_flux[i]*box_counts),num_ebins-1))
-            box_flux[i] += d_box_flux
-        box_flux[i] *= energies[i]/10.**11.
-        print "upper limit in bin " + str(i) + " is " + str(box_flux[i])
-    return box_flux
+    file = open('xmlmodel_fixed_box.xml','w')
+
+    for entry in non_box_string[:-1]:
+        file.write(entry)
+    for entry in box_string:
+        file.write(entry)
+    file.write('</source_library>\n')
+    file.close()
+
+#Likelihood from gtlikelihood module
+def loglikelihood3(energy, box_flux, obs):
+
+    #Next, edit the XML file to have the right flux and spectrum
+    edit_box_xml(energy, box_flux)
+
+    #Do the fitting
+    like1 = BinnedAnalysis(obs, 'xmlmodel_fixed_box.xml', optimizer='NEWMINUIT')
+    like1.tol=1e-8
+    like1obj = pyLike.Minuit(like1.logLike)
+    q = like1.fit(verbosity=0,optObject=like1obj)
+    return q
+
+def get_spectrum(likelihood_obj):
+    spectrum = np.zeros((num_ebins-1))
+    for source in likelihood_obj.sourceNames():
+        spectrum += likelihood_obj._srcCnts(source)
+    return spectrum
 
 
-#input: cubes with dimensions (50,10,10)
-def loglikelihood2(counts,model_counts,box):
-    f0 = 0.0
-    f1 = 0.0
-    #i loops over energy slices
-    for i in range(len(counts)):
-        #j loops over ra
-        for j in range(10):
-            #k loops over dec
-            for k in range(10):
-                #m = number of counts
-                m = counts[i,j,k]
-                #null hypothesis counts:
-                mu0 = model_counts[i,j,k]
-                #background+signal counts
-                mu1 = model_counts[i,j,k]+box[i,j,k]
-                #Do we need stirling's approximation?   
-                if m>20:	
-                    f0 += m-mu0+m*np.log(mu0/m)-0.5*np.log(m)-np.log(np.sqrt(2*np.pi))
-                    f1 += m-mu1+m*np.log(mu1/m)-0.5*np.log(m)-np.log(np.sqrt(2*np.pi))
-                else:
-                    f0 += np.log((mu0**m)*np.exp(-1.0*mu0)/factorial(m))
-                    f1 += np.log((mu1**m)*np.exp(-1.0*mu1)/factorial(m))
-    return 2*(f0-f1)	
 
-#Returns dim (50,10,10) array with unity counts smeared out by PSF
-#To get counts as a function of energy given a flux, just multiply this array by the box counts
-def make_box_cube():
-    box_cube = np.zeros((50,10,10))
-    for i in range(50):
-        ang_res = psf(energies[i])
-        #j loops over ra
-        for j in range(10):
-            #k loops over dec
-            for k in range(10):
-                #Here we calculate the integrated value of a 2d gaussian function
-                sigma = ang_res/np.sqrt(2)
-                xvalue = 1.0/np.sqrt(2.0*np.pi*sigma**2)*np.exp((-1.0*(0.1*(j-5)+0.05)**2)/(2*sigma**2))
-                yvalue = 1.0/np.sqrt(2.0*np.pi*sigma**2)*np.exp((-1.0*(0.1*(k-5)+0.05)**2)/(2*sigma**2))
-                #integral here is just area (0.1 deg * 0.1 deg)* value of function at the center of each pixel
-                box_cube[i,j,k] = xvalue*yvalue*0.01
-    #Visualization of the cube, if desired
-    #plt.imshow(box_cube[25,:,:])
-    #plt.show()
-    return box_cube
-
-    
-#A function to get the upper limit, given a counts cube and source map cube
-#Dimensions of the cube are ra/dec, and energy
-def likelihood_upper_limit2(c_cube,srcmap,confidence):
+def likelihood_upper_limit3():
     #Array to hold results of flux upper limit calculation
-    box_flux = np.zeros((num_ebins))
-    #Loop through upper edge of box
-    box_cube = make_box_cube()
-    for i in range(num_ebins-1): 
-        print "Calculating upper limit in bin " + str(i) + " which is at energy " + str(energies[i]) + " MeV"     
-        #Calculate number of expected counts from the box, in each energy bin
-        #this is found via convolving the pure box with the energy dispersion
-        #then integrating in each energy bin
-        #god help you if you are trying to figure out what's happening here. hopefully it works
-        #needs more comments in the future
-        x_fine_grid = np.linspace(0.0, 300000, 300000)
-        pure_box = np.concatenate([1.0+np.zeros((int(np.argmin(np.abs(x_fine_grid-energies[i]))))),np.zeros((300000-int(np.argmin(np.abs(x_fine_grid-energies[i])))))])
-        sigma = e_res(energies[i])*energies[i]
-        dispersion = blur(np.linspace(0,6*sigma,6*sigma),3*sigma,sigma)
-        convolved_pure_box = np.convolve(pure_box, dispersion,'same')
-        #now that we have a convolved box, figure out what the number of counts in each energy bin equates to
-        #two pieces- the integrated number of counts per bin, and the relative exposure per bin
-        box_counts = np.zeros((num_ebins-1))
-        for j in range(num_ebins-1):
-            xlow = np.argmin(np.abs(x_fine_grid-energies[j]))
-            xhigh = xlow+ebin_widths[j]
-            #Exposure correction. Factor of 10^11 is just to make things more convenient
-            box_counts[j] = get_integral(x_fine_grid[xlow:xhigh],convolved_pure_box[xlow:xhigh])*exposures[j]/10.**11./10**3
-        #Need to turn the total counts into a counts cube
-        box_counts_cube = multiply_multidimensional_array(box_counts,box_cube)
-        box_counts_cube *= 1.0/sum(sum(sum(box_counts_cube[:,:,:])))
-        print "total number of counts in slice " + str(i) + " is " + str(sum(sum(c_cube[i,:,:])))
-        print "total number of model counts in slice " + str(i) + " is " + str(sum(sum(srcmap[i,:,:])))
-        #The increment should be equivalent to a few counts in the energy slice we care about
-        #say, 5 counts
-        #Find minimum i.e. best fit value
-        d_box_flux = (sum(sum(c_cube[i,:,:]))+sum(sum(srcmap[i,:,:])))*0.5/100.
-        print "dbox flux = " + str(d_box_flux)
-        print "sum = " + str(1.0*sum(sum(box_counts_cube[i,:,:])))
-        print "finding minimum..."
-        while loglikelihood2(c_cube,srcmap,(box_flux[i]+d_box_flux)*box_counts_cube)<loglikelihood2(c_cube,srcmap,box_flux[i]*box_counts_cube):
-            box_flux[i] += d_box_flux
-                
-        print "finding upper limit..."
-        box_significance = sigma_given_p(pvalue_given_chi2(loglikelihood2(c_cube,srcmap,box_flux[i]*box_counts_cube),(num_ebins-1)))
-        
-        while box_significance<2.0:
-            box_flux[i] += d_box_flux
-            box_significance = sigma_given_p(pvalue_given_chi2(loglikelihood2(c_cube,srcmap,box_flux[i]*box_counts_cube),(num_ebins-1)))
-            print "integrated counts = " + str(box_flux[i]*sum(sum(sum(box_counts_cube[:,:,:]))))
-            print box_significance
-            
-        #Return the integrated flux
-        box_flux[i] *= 1.0/exposures[i]
-        print "upper limit in bin " + str(i) + " is " + str(box_flux[i])
-    return box_flux
-
-  
-#Commented out code generates the box matrix, which gives a blurred box spectrum  
-"""
-print "Generating matrix..."
-#Save time and just calculate box edges once
-box_counts_matrix = np.zeros((len(energies),len(energies)))
-print energies
-print len(energies)
-print ebin_widths
-print len(ebin_widths)
-i = 0
-for energy in energies:
-    box_counts_matrix[i,:] = generate_counts(energy,energies)
-    i += 1
-file = open('box_matrix.pk1','wb')
-pickle.dump(box_counts_matrix,file)
-file.close()
-print "Done!"
-
-fig = plt.figure()
-ax = fig.add_subplot(111)
-the_box = np.concatenate([1.0+np.zeros((500)),np.zeros((500))])
-ax.plot(np.linspace(0,100000,1000),the_box,color='black',linewidth=3,label='Simple Box')
-ax.plot(np.linspace(0,100000,1000)[5:],convolve(np.linspace(0,100000,1000),the_box)[5:],color='blue',linewidth=3,label='Convolved Box')
-plt.xlabel('Energy [eV]')
-plt.legend()
-plt.show()
-raw_input('wait for key')
-"""
-
-model_counts = np.zeros((num_ebins-1))
-model_counts2 = np.zeros((num_ebins))
-model_counts3 = np.zeros((num_ebins))
-
-#Moderate Model
-model_file = open('very_center_model_moderate.pk1','rb')
-model = pickle.load(model_file)
-model_file.close()
-
-#Using the source maps to make model cubes
-srcmodel_file = pyfits.open('very_center_srcmap.fits')
-#The 4 different components of the model
-source_map = np.zeros((4,50,10,10))
-for h in range(len(model)):
-    for i in range(50):
-        for j in range(10):
-            for k in range(10):
-                source_map[h,i,j,k] = srcmodel_file[h+3].data[i][j][k]
-
-srcmodel_file.close()
-
-model_counts = np.zeros((num_ebins-1))
-moderate_model_cube = np.zeros((num_ebins-1,10,10))
-#Combine the various fits from gt_apps into a single fit model
-for h in range(len(model)):
-    for i in range(num_ebins-1):
-        for j in range(10):
-            for k in range(10):
-                norm_factor = model[h][i]/sum(sum(source_map[h,i,:,:]))
-                #model_counts[i] += model[i][h]
-                moderate_model_cube[i,j,k] += norm_factor*float(source_map[h,i,j,k])
-                
-        
-moderate_upper_limits = likelihood_upper_limit2(counts,moderate_model_cube,2.0)
-
-"""
-#Conservative model
-model_file = open('very_center_model_conservative.pk1','rb')
-model = pickle.load(model_file)
-model_file.close()
-
-#Combine the various fits from gt_apps into a single fit model
-for i in range(num_ebins):
-    for j in range(len(model)):
-        model_counts[i] += model[j][i]
-        model_counts3[i] += model[j][i]
-        
-print "conservative model counts: " + str(model_counts)
-conservative_upper_limits = likelihood_upper_limit(counts,model_counts)
-print "actual counts: " + str(counts)
-
-#Aggressive model
-model_file = open('very_center_model_aggressive.pk1','rb')
-model = pickle.load(model_file)
-model_file.close()
-model_counts = np.zeros((num_ebins))
-#Combine the various fits from gt_apps into a single fit model
-for i in range(num_ebins):
-    for j in range(len(model)):
-        model_counts[i] += model[j][i]
-print "aggressive model counts: " + str(model_counts)
-aggressive_upper_limits = likelihood_upper_limit(counts,model_counts)
-"""
-make_brazil_bands = False
-if make_brazil_bands:
-    #Poisson randomization of the counts in each bin, so that we get 95% and 68% containment for the upper limit
-    trials = 50
-    mc_limits = np.zeros((trials,num_ebins))
-    for i in range(trials):
-        print "Trial " + str(i)
-        the_counts = np.random.poisson(np.random.poisson(model_counts))
-        mc_limits[i,:] = likelihood_upper_limit(the_counts,model_counts)
+    num_ebins = 51 #1 more than the number of bins due to the fencepost problem
+    energies = 10**np.linspace(np.log10(6000),np.log10(800000),num_ebins)
+    ebin_widths = np.diff(energies)
     
-    lower_95 = np.zeros((num_ebins))        
-    lower_68 = np.zeros((num_ebins))        
-    upper_95 = np.zeros((num_ebins))        
-    upper_68 = np.zeros((num_ebins))   
-    median = np.zeros((num_ebins))     
-    for i in range(num_ebins):
+    sourcemap = '6gev_srcmap_03.fits'#'box_srcmap_artificial_box.fits'#'6gev_srcmap_complete.fits'
+    box_flux = np.zeros((num_ebins-1))
+    best_box = np.zeros((num_ebins-1))
+
+    gll_counts = np.zeros((num_ebins-1))
+
+    #reconstructed_spectra = np.zeros((num_ebins-1, num_ebins-1))
+    #Loop through upper edge of box
+    for index in range(18,48):
+        print "Calculating upper limit in bin " + str(index) + " at energy " + str(energies[index])
+        #print "bin " + str(np.argmin(np.abs(energies-energy)))
+        #window_low, window_high = window(energy, energies)
+        
+        window_low = index-6
+        window_high = index+2
+        print "window low = " + str(window_low)
+        print "window high = " + str(window_high)
+
+        #Generate two observations (one above the window and one below)
+        #Make two exposure maps
+        if index>6:
+            exposure_complete = pyfits.open('6gev_exposure.fits')
+            exposure_complete[0].data = exposure_complete[0].data[:window_low+1]
+            a = exposure_complete[0]
+            exposure_complete[1].data = exposure_complete[1].data[:window_low+1]
+            b = exposure_complete[1]
+            hdulist = pyfits.HDUList([a, b, exposure_complete[2]])
+            os.system('rm exposure_low.fits')
+            hdulist.writeto('exposure_low.fits')
+            exposure_complete.close()
+        if index<48:
+            exposure_complete = pyfits.open('6gev_exposure.fits')
+            exposure_complete[0].data = exposure_complete[0].data[window_high:]
+            a = exposure_complete[0]
+            exposure_complete[1].data = exposure_complete[1].data[window_high:]
+            b = exposure_complete[1]
+            hdulist = pyfits.HDUList([a, b, exposure_complete[2]])
+            os.system('rm exposure_high.fits')
+            hdulist.writeto('exposure_high.fits')
+            exposure_complete.close()
+        
+        
+        #Make two sourcemaps
+        if index>6:
+            srcmap_complete = pyfits.open(sourcemap)
+            srcmap_complete[0].data = srcmap_complete[0].data[:window_low]
+            a = srcmap_complete[0]
+            srcmap_complete[2].data = srcmap_complete[2].data[:window_low]
+            b = srcmap_complete[2]
+            srcmap_complete[3].data = srcmap_complete[3].data[:window_low+1]
+            c = srcmap_complete[3]
+            srcmap_complete[4].data = srcmap_complete[4].data[:window_low+1]
+            d = srcmap_complete[4]
+            srcmap_complete[5].data = srcmap_complete[5].data[:window_low+1]
+            e = srcmap_complete[5]
+            srcmap_complete[6].data = srcmap_complete[6].data[:window_low+1]
+            f = srcmap_complete[6]
+            srcmap_complete[7].data = srcmap_complete[7].data[:window_low+1]
+            g = srcmap_complete[7]
+            srcmap_complete[8].data = srcmap_complete[8].data[:window_low+1]
+            h = srcmap_complete[8]
+
+            os.system('rm srcmap_low.fits')
+            b.header['DSVAL4'] = str()+':'+str()
+            hdulist = pyfits.HDUList([a, srcmap_complete[1], b, c, d, e, f, g, h])
+            hdulist.writeto('srcmap_low.fits')
+            srcmap_complete.close()
+        
+        if index<48:
+            srcmap_complete = pyfits.open(sourcemap)
+            srcmap_complete[0].data = srcmap_complete[0].data[window_high:]
+            a = srcmap_complete[0]
+            srcmap_complete[2].data = srcmap_complete[2].data[window_high:]
+            r = 0
+            for entry in srcmap_complete[2].data:
+                entry[0] = int(r)
+                r += 1
+            #srcmap_complete[2].data[:,0] = np.arange(0, len(srcmap_complete[2].data[:,0]))
+            b = srcmap_complete[2]
+            srcmap_complete[3].data = srcmap_complete[3].data[window_high:]
+            c = srcmap_complete[3]
+            srcmap_complete[4].data = srcmap_complete[4].data[window_high:]
+            d = srcmap_complete[4]
+            srcmap_complete[5].data = srcmap_complete[5].data[window_high:]
+            e = srcmap_complete[5]
+            srcmap_complete[6].data = srcmap_complete[6].data[window_high:]
+            f = srcmap_complete[6]
+            srcmap_complete[7].data = srcmap_complete[7].data[window_high:]
+            g = srcmap_complete[7]
+            srcmap_complete[8].data = srcmap_complete[8].data[window_high:]
+            h = srcmap_complete[8]
+
+            os.system('rm srcmap_high.fits')
+            hdulist = pyfits.HDUList([a, srcmap_complete[1], b, c, d, e, f, g, h])
+            hdulist.writeto('srcmap_high.fits')
+            srcmap_complete.close()
+
+        summedLike = SummedLikelihood()
+
+        if index>6:
+            obs_low = BinnedObs(srcMaps='/Users/christian/physics/p-wave/6gev/srcmap_low.fits', expCube='/Users/christian/physics/p-wave/6gev/6gev_ltcube.fits', binnedExpMap='/Users/christian/physics/p-wave/6gev/exposure_low.fits', irfs='CALDB')
+            like_low = BinnedAnalysis(obs_low, 'xmlmodel_free.xml', optimizer='NEWMINUIT')
+            summedLike.addComponent(like_low)
+
+
+        if index<48:
+            obs_high = BinnedObs(srcMaps='/Users/christian/physics/p-wave/6gev/srcmap_high.fits', expCube='/Users/christian/physics/p-wave/6gev/6gev_ltcube.fits', binnedExpMap='/Users/christian/physics/p-wave/6gev/exposure_high.fits', irfs='CALDB')
+            like_high = BinnedAnalysis(obs_high, 'xmlmodel_free.xml', optimizer='NEWMINUIT')
+            summedLike.addComponent(like_high)
+
+        summedLike.ftol = 1e-8
+        summedLike.fit(verbosity=0)
+        summedLike.writeXml('xmlmodel_free.xml')
+        for k in range(len(summedLike.params())):
+            summedLike.freeze(k)
+        summedLike.writeXml('xmlmodel_fixed.xml')
+        
+        obs_complete = BinnedObs(srcMaps='/Users/christian/physics/p-wave/6gev/'+sourcemap, expCube='/Users/christian/physics/p-wave/6gev/6gev_ltcube.fits', binnedExpMap='/Users/christian/physics/p-wave/6gev/6gev_exposure.fits', irfs='CALDB')
+        like = BinnedAnalysis(obs_complete, 'xmlmodel_fixed.xml', optimizer='NEWMINUIT')
+        like.tol=1e-8
+        like_obj = pyLike.Minuit(like.logLike)
+        like.fit(verbosity=3,optObject=like_obj)
+        complete_spectrum = like.nobs#
+        window_spectrum = get_spectrum(like)
+        
+        #Flucuate the window data
+        f = pyfits.open(sourcemap)
+        poisson_data = np.zeros((len(range(max(window_low,0), min(window_high, 49))), 50, 50))
+        q = 0
+        for bin in range(max(window_low,0), min(window_high,49)):
+            for source in like.sourceNames():
+                for j in range(3,9):
+                    if source == f[j].header['EXTNAME']:
+                        the_index = j
+                    model_counts = np.zeros((1,len(f[the_index].data[bin].ravel())))[0]
+                    num_photons = int(np.round(np.random.poisson(like._srcCnts(source)[bin])))#
+                for photon in range(int(num_photons)):
+                    phot_loc = int(make_random(np.arange(0,len(model_counts), 1), f[the_index].data[bin].ravel()))
+                    model_counts[phot_loc] += 1
+                model_counts = model_counts.reshape(50, 50)
+                poisson_data[q] += model_counts
+            q += 1
+        f[0].data[max(window_low,0):min(window_high, 49)] = poisson_data
+        os.system('rm box_srcmap_poisson.fits')
+        f.writeto('box_srcmap_poisson.fits')
+        f.close()
+
+        obs_poisson = BinnedObs(srcMaps='box_srcmap_poisson.fits', expCube='6gev_ltcube.fits', binnedExpMap='6gev_exposure.fits', irfs='CALDB')
+        like = BinnedAnalysis(obs_poisson, 'xmlmodel_fixed.xml', optimizer='NEWMINUIT')
+        like.tol=1e-8
+        like_obj = pyLike.Minuit(like.logLike)
+        like.fit(verbosity=0,optObject=like_obj)
+        poisson_spectrum = like.nobs
+
+        obs_calculation = obs_complete #obs_poisson or obs_complete
+        """
+        #Plot likelihood profile
+        mylikelihood = np.zeros((100))
+        b = 0
+        for boxflux in 10**np.linspace(-11, -7.5, 100):
+            mylikelihood[b] = loglikelihood3(50000, boxflux, obs_calculation)
+            b += 1
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        plt.xscale('log')
+        plt.plot(10**np.linspace(-11, -7.5, 100), -1.0*mylikelihood, linewidth=2, color='blue')
+        plt.axvline(2.*10**-9, linestyle='--', color='black')
+        plt.show()
+        raw_input('wait for key')
+        """
+        null_likelihood = loglikelihood3(energies[index], 10.**-25, obs_calculation)
+        #Find best fit box:
+        old_likelihood=null_likelihood
+        box_flux[index] = 10.**-13
+        print loglikelihood3(energies[index], box_flux[index], obs_calculation)
+        while loglikelihood3(energies[index], box_flux[index], obs_calculation)<old_likelihood:
+            old_likelihood=loglikelihood3(energies[index], box_flux[index], obs_calculation)
+            box_flux[index] *= 1.3
+        print "null likelihood = " + str(null_likelihood)
+        print "new likelihood = " + str(old_likelihood)
+        best_box[index] = box_flux[index]/1.3
+        print "best box = " + str(best_box[index]) + ", with significance " + str(sigma_given_p(pvalue_given_chi2(-2.0*(old_likelihood-null_likelihood),3))) + " sigma"
+        
+        #increase box flux until likelihood > 2sigma over null likelihood
+        box_flux[index] = 10.**-13
+        while sigma_given_p(pvalue_given_chi2(2.0*(loglikelihood3(energies[index], box_flux[index], obs_calculation)-null_likelihood),3))<2.0:
+            print "flux = " + str(box_flux[index]) + " likelihood= " + str(loglikelihood3(energies[index], box_flux[index], obs_calculation))
+            box_flux[index]*=3.0
+        box_flux[index]*=1.0/3.0
+        while sigma_given_p(pvalue_given_chi2(2.0*(loglikelihood3(energies[index], box_flux[index], obs_calculation)-null_likelihood),3))<2.0:
+            print "flux = " + str(box_flux[index]) + " likelihood= " + str(loglikelihood3(energies[index], box_flux[index], obs_calculation))
+            box_flux[index]*=1.1
+        box_flux[index]*=1.0/1.1
+        while sigma_given_p(pvalue_given_chi2(2.0*(loglikelihood3(energies[index], box_flux[index], obs_calculation)-null_likelihood),3))<2.0:
+            print "flux = " + str(box_flux[index]) + " likelihood= " + str(loglikelihood3(energies[index], box_flux[index], obs_calculation))
+            box_flux[index]*=1.03
+
+        print box_flux[index]
+        
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        plt.plot(energies[:-1], window_spectrum, linewidth=2., color='blue', label='Reconstructed spectrum')
+        plt.errorbar(energies[:-1], poisson_spectrum, xerr=0, yerr=np.sqrt(poisson_spectrum), fmt='o', color='red', label='Poisson fluctuations')
+        plt.errorbar(energies[:-1], complete_spectrum, xerr=0, yerr=np.sqrt(complete_spectrum), fmt='o', color='black',label='Actual data')
+        plt.axvspan(energies[window_low]-0.5*ebin_widths[window_low], energies[window_high]-0.5*ebin_widths[window_high], alpha=0.3, color='black', label='Window')
+        plt.legend()
+        ax.set_yscale('log')
+        ax.set_xscale('log')
+        ax.set_xlim([8000.0, 800000])
+        plt.title('Bin ' + str(index))
+        plt.show()
+        raw_input('wait for key')
+        
+        
+    return box_flux, best_box#box_flux#, reconstructed_spectra
+
+
+
+
+def consolidate_brazil_lines():
+    file = open('brazil_wide_box.pk1','rb')
+    g = pickle.load(file)
+    file.close()
+    brazil_dict = np.zeros((6100,num_ebins-1))
+    i = 0
+    for entry in g:
+        brazil_dict[i,:] = entry
+        i += 1
+    return brazil_dict
+
+
+def make_ul_plot(ul, brazil_dict, plot_type):
+    mc_limits = brazil_dict[np.nonzero(brazil_dict[:,10])]
+    trials = len(mc_limits)
+    print "trials = " + str(trials)
+    lower_95 = np.zeros((num_ebins-1))
+    lower_68 = np.zeros((num_ebins-1))
+    upper_95 = np.zeros((num_ebins-1))
+    upper_68 = np.zeros((num_ebins-1))
+    median = np.zeros((num_ebins-1))
+    for i in range(num_ebins-1):
         lims = mc_limits[:,i]
         lims.sort()
         lower_95[i] = lims[int(0.025*trials)]
@@ -418,58 +527,106 @@ if make_brazil_bands:
         lower_68[i] = lims[int(0.15865*trials)]
         upper_68[i] = lims[int(0.84135*trials)]
         median[i] = lims[int(0.5*trials)]
+    print "Median = " + str(median)
+    fig = plt.figure(figsize=[10,8])
+    ax = fig.add_subplot(111)
+    print ul
+    if plot_type=='UL':
+        #Plotting uppper limit
+        #ax.plot(energies[:-1],median,color='black',linewidth=1,linestyle='--', label='Median MC')
+        ax.fill_between(energies[:-1], lower_95, upper_95, color='yellow', label='95\% Containment')
+        ax.fill_between(energies[:-1], lower_68, upper_68, color='#63ff00',label='68\% Containment')
+        ax.plot(energies[:-1],ul, marker='.', markersize=13.0,color='black',linewidth=2, label='Data')
+        ax.set_yscale('log')
+        ax.set_xscale('log')
+        plt.ylabel('Flux Upper Limit [ph s$^{-1}$ cm$^{-2}$]')
+        plt.xlabel('Energy [MeV]')
+        plt.legend()
+        
+        ax.set_xlim([10000, 600000])
+        ax.set_ylim([10**-11, 10**-9])
+        plt.savefig('plots/upper_limit_artificial_box.pdf',bbox_inches='tight')
+        plt.show()
+        
+    if plot_type=='SIG':
+        #Plotting significance curve
+    
+        ax.fill_between(energies[:-1], -2.0, 2.0, color='yellow', label='95\% Containment')
+        ax.fill_between(energies[:-1], -1.0, 1.0, color='#63ff00', label='68\% Containment')
+        ax.axhline(0.0, color='black', linestyle='--', linewidth=0.5)
+
+        plt.ylabel('Significance [$\sigma$]')
+        ax.set_xscale('log')
+        ax.set_xlim([10000, 600000])
+        ax.set_ylim([-4.0, 4.0])
+        plt.xlabel('Energy [MeV]')
+        plt.legend()
+        significances = np.zeros((len(ul)))
+        for i in range(6,48):
+            print i
+            bins = np.linspace(np.min(brazil_dict[:,i][np.nonzero(brazil_dict[:,i])]), np.max(brazil_dict[:,i][np.nonzero(brazil_dict[:,i])]), 25)
+            lim_hist = np.histogram(brazil_dict[:,i],bins) 
+            #popt, pcov = curve_fit(skew_gaussian, bins[:-1], lim_hist[0], p0=popt)
+            popt, pcov = curve_fit(skew_gaussian, bins[:-1], lim_hist[0], p0=[50.0, np.mean(brazil_dict[:,i][np.nonzero(brazil_dict[:,i])]), np.std(brazil_dict[:,i][np.nonzero(brazil_dict[:,i])]), 4.0])
+        
+            x_range = 10**np.linspace(np.log10(np.min(brazil_dict[:,i][np.nonzero(brazil_dict[:,i])])), 0.0, 5000)
+            small_range = 10**np.linspace(np.log10(ul[i]), 0.0, 5000)
+            p_value = get_integral(small_range,skew_gaussian(small_range, *popt) )/get_integral(x_range, skew_gaussian(x_range, *popt))
+            if p_value>0.5:
+                significances[i] = -1.0*sigma_given_p(1.0-p_value)
+            else:
+                significances[i] = sigma_given_p(p_value)
+        print significances
+
+        #significances = np.delete(significances, 41)
+        #significances = np.delete(significances, 47)
+    
+        #energies = np.delete(energies, 41)
+        print significances
+        print significances.shape
+        print energies
+        plt.plot(energies[:-1], significances, color='black', marker='.', linewidth=2, markersize=13.0, label='Data')
+        plt.savefig('plots/significance_narrow_box.pdf',bbox_inches='tight')
+        plt.show()
+
 
 """
-#Plotting the results
-fig=plt.figure()
+box_flux = likelihood_upper_limit3()
+print box_flux
+fig = plt.figure()
 ax = fig.add_subplot(111)
-#ax.plot(energies, counts, marker='s', color='black', linewidth=0)
-#ax.plot(energies, 10**linear_fit(np.log10(energies)),color='blue')
-ax.plot(energies[2:45], conservative_upper_limits[2:45], marker='s',markersize=5, color='black', linewidth=1.0,label='Conservative Upper Limit')
-ax.plot(energies[2:45], moderate_upper_limits[2:45], marker='s',markersize=5, color='red', linewidth=1.0,label='Moderate Upper Limit')
-ax.plot(energies[2:45], aggressive_upper_limits[2:45], marker='s',markersize=5, color='blue', linewidth=1.0,label='Aggressive Upper Limit')
-
-plt.ylabel('Flux Upper Limit')
-plt.xlabel('Energy [MeV]')
+ax.plot(energies[:-1], box_flux, color='black', linewidth=2.0)
 ax.set_yscale('log')
 ax.set_xscale('log')
-plt.legend(loc=1)
-plt.show()"""
-        
-fig = plt.figure()
-ax2 = fig.add_subplot(111)
-#ax2.plot(energies, counts, marker='s', color='black', linewidth=0,label='Data')
-#ax2.plot(energies,model_counts,color='black',label='Conservative Model')
-#ax2.plot(energies,model_counts2,color='blue',label='Aggressive Model')
-ax2.plot(energies,moderate_upper_limits,color='red',label='Moderate Model')
+ax.set_xlim([6000.0, 800000])
 
-ax2.legend(loc=1)
-ax2.set_yscale('log')
-ax2.set_xscale('log')
+#ax.set_ylim([10**-11, 10**-8])
+plt.xlabel('Energy [MeV]')
+
 plt.show()
+raw_input('wait for key')
+"""
 
-#ax2.fill_between(energies[2:45],lower_95[2:45],upper_95[2:45], where=upper_95[2:45]> lower_95[2:45], facecolor='yellow',label='95 Percent Containment')
-#ax2.fill_between(energies[2:45],lower_68[2:45],upper_68[2:45], where=upper_68[2:45]> lower_68[2:45], facecolor='green',label='68 Percent Containment')
-#ax2.plot(energies[2:45], conservative_upper_limits[2:45], marker='s',markersize=5, color='black', linewidth=1.0,label='Conservative Upper Limit')
-plt.show()
+remake_ul = False
 
-if make_brazil_bands:
-    #Residuals plots
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    ax.plot(energies[2:45], (conservative_upper_limits[2:45]-median[2:45])/median[2:45], marker='s',markersize=5, color='black', linewidth=1.0,label='Upper Limit Residuals [(Data-Model)/Model]')
-    ax.fill_between(energies[2:45],(lower_95[2:45]-median[2:45])/median[2:45],(upper_95[2:45]-median[2:45])/median[2:45], where=(upper_95[2:45]-median[2:45])/median[2:45]> (lower_95[2:45]-median[2:45])/median[2:45], facecolor='yellow',label='95 Percent Containment')
-    ax.fill_between(energies[2:45],(lower_68[2:45]-median[2:45])/median[2:45],(upper_68[2:45]-median[2:45])/median[2:45], where=(upper_68[2:45]-median[2:45])/median[2:45]> (lower_68[2:45]-median[2:45])/median[2:45], facecolor='green',label='68 Percent Containment')
-    plt.ylabel('Relative Upper Limit [Counts/MeV]')
-    plt.xlabel('Energy [MeV]')
-    ax.set_xlim(400, 250000)
-    ax.axhline(0.0,linewidth=1,color='black',linestyle='--')
-    ax.set_xscale('log')
-    ax.legend(loc=1)
-    plt.show()
-    ax2 = fig.add_subplot(122)
-    ax2.errorbar(energies, (counts-model_counts)/model_counts,xerr = 0, yerr=np.sqrt(counts-model_counts)/model_counts, marker='s', color='black', linewidth=0,label='Residuals [(Data-Model)/Model]')
-    ax.axhline(0.0,linewidth=1,color='black',linestyle='--')
-    ax2.legend(loc=1)
-    ax2.set_xscale('log')
-    plt.show()
+if remake_ul:
+    box_flux, best_box = likelihood_upper_limit3()
+    raw_input('wait for key')
+    
+    file = open('upper_limit_narrow_box_mc.pk1', 'wb')
+    pickle.dump(box_flux,file)
+    file.close()
+
+else:
+    file = open('upper_limit_wide_box.pk1', 'rb')
+    box_flux = pickle.load(file)
+    file.close()
+
+#file = open('brazil.pk1', 'rb')
+#brazil_dict = pickle.load(file)
+#file.close()
+
+brazil_dict = consolidate_brazil_lines()
+
+make_ul_plot(box_flux, brazil_dict, plot_type='UL')
+
