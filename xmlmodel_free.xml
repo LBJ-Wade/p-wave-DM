@@ -38,8 +38,8 @@
   </source>
   <source name="Disk Component" type="DiffuseSource">
     <spectrum type="PowerLaw">
-      <parameter error="471594.0268" free="1" max="100000000" min="0.01" name="Prefactor" scale="1e-12" value="3108452.016" />
-      <parameter error="0.06013606454" free="1" max="4" min="0" name="Index" scale="-1" value="2.519926518" />
+      <parameter error="116130.7159" free="1" max="10000000" min="0" name="Prefactor" scale="1e-11" value="347242.3177" />
+      <parameter error="0.1011664268" free="1" max="4" min="0" name="Index" scale="-1" value="2.57334515" />
       <parameter free="0" max="500000" min="30" name="Scale" scale="1" value="1000" />
     </spectrum>
     <spatialModel file="/Users/christian/physics/p-wave/6gev/gauss.dat" type="RadialProfile">
@@ -50,8 +50,8 @@
   </source>
   <source name="gll_iem_v05" type="DiffuseSource">
     <spectrum apply_edisp="false" type="PowerLaw">
-      <parameter error="0.2459968726" free="1" max="1000" min="0" name="Prefactor" scale="1" value="1.761868339" />
-      <parameter error="0.02984025184" free="1" max="1" min="-4" name="Index" scale="1" value="-0.159477753" />
+      <parameter error="0.5932342033" free="1" max="100000000" min="0" name="Prefactor" scale="1" value="2.173999586" />
+      <parameter error="0.04899207366" free="1" max="1" min="-4" name="Index" scale="1" value="-0.1949596526" />
       <parameter free="0" max="200" min="50" name="Scale" scale="1" value="100" />
     </spectrum>
     <spatialModel file="/Users/christian/physics/p-wave/8gev/gll_iem_v06.fits" type="MapCubeFunction">

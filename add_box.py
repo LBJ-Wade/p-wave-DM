@@ -58,8 +58,8 @@ plt.show()
 num_ebins = 51
 energies = 10**np.linspace(np.log10(6000),np.log10(800000),num_ebins)
 ebin_widths = np.diff(energies)
-box_flux = 8.0*10**-11#total flux
-endpoint_e = 100000#MeV, aka 50 GeV
+box_flux = 2.0*10**-10#total flux
+endpoint_e = 100000#MeV, aka 100 GeV
 dnde = box_flux/endpoint_e #flux per MeV
 
 box_counts = np.zeros((num_ebins-1))
@@ -125,13 +125,14 @@ for i in range(num_ebins-1):
     model_counts = np.zeros((1,len(f[6].data[i].ravel())))[0]
     num_photons = np.random.poisson(box_counts[i])
     print "num photons = " + str(num_photons) + " or " + str(100.*num_photons/np.sum(np.sum(f[0].data[i]))) + "% of total counts in bin " + str(i)
+    print "sqrt(num photons) = " + str(np.sqrt(num_photons))
+    print "flux ul 95% = " + str(2*np.sqrt(num_photons)/num_photons)
     for photon in range(num_photons):
         phot_loc = int(make_random(np.arange(0,len(model_counts), 1), f[6].data[i].ravel()))
         model_counts[phot_loc] += 1
+        
+
     model_counts = model_counts.reshape(50, 50)
     f[0].data[i] += model_counts
 f.writeto('box_srcmap_artificial_box.fits')
 f.close()
-
-
-

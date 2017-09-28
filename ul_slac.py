@@ -103,12 +103,16 @@ def make_random(x,g):
 
 
 
-def edit_box_xml(energy, box_flux):
+
+def edit_box_xml(energy, box_flux, z):
     #Choose between a wide and narrow box
-    box_beginning = energy-1000.0#energy-100 -> 100 MeV wide box
+    #z=0: wide box
+    #z=1: line
     
+    box_width = energy*2.0*np.sqrt(1.0-z)/(1+np.sqrt(1.0-z))
+    box_beginning = energy-box_width
     #Edit box_spectrum.dat
-    file = open('box_spectrum.dat','w')
+    spectrum_file = open('box_spectrum.dat','w')
     #What's the normalization constant here?
     #Total flux is E_edge*function value
     #Function_value = total_flux/E_edge
@@ -117,80 +121,126 @@ def edit_box_xml(energy, box_flux):
     n_trailing_zeros = 10000-int(np.argmin(np.abs(x_fine_grid-energy)))
     n_box_width = int(10000-n_leading_zeros-n_trailing_zeros)
     pure_box = np.concatenate([np.zeros((n_leading_zeros)),np.concatenate([1.0+np.zeros((n_box_width)),np.zeros((n_trailing_zeros))])])
-    
+
     #Sigma here is the absolute energy resolution as a function of energy
     sigma = e_res(energy)*energy*10000./800000.0
-    
+
     dispersion = blur(np.linspace(0,6*sigma,6*sigma),3*sigma,sigma)
     convolved_pure_box = np.convolve(pure_box, dispersion,'same')
     for i in range(len(x_fine_grid)):
-        file.write(str(x_fine_grid[i])+" " + str(max(convolved_pure_box[i], 10.**-35))+"\n")
-    file.close()
-
-    file = open('xmlmodel_fixed.xml','r')
+        spectrum_file.write(str(x_fine_grid[i])+" " + str(max(convolved_pure_box[i], 10.**-35))+"\n")
+    spectrum_file.close()
+    """
+    plt.plot(x_fine_grid, convolved_pure_box)
+    plt.axvline(energy, linestyle='--',linewidth=0.5, color='black')
+    plt.axvspan(box_beginning, energy, alpha=0.5, color='green')
+    plt.axvline(box_beginning-sigma, linestyle=':', color='black')
+    plt.axvline(energy+sigma, linestyle=':', color='black')
+    plt.plot(x_fine_grid, pure_box, color='red')
+    print max(blur(x_fine_grid,energy,e_res(energy)*energy))
+    plt.plot(x_fine_grid, 10**4*blur(x_fine_grid,energy,e_res(energy)*energy), color='yellow',linestyle='-.')
+    plt.show()
+    """
+    fixed_xml_file = open('xmlmodel_fixed.xml','r')
     non_box_string = []
-    for line in file:
+    for line in fixed_xml_file:
         non_box_string.append(line)
-    file.close()
+    fixed_xml_file.close()
+
+    box_minimum = 1e-15
+    box_maximum = 1e-8
+    scale_factor = 1e-15
     
     box_string = []
-    box_string.append(' <source name="Box_Component" type="PointSource">\n')
+    box_string.append(' <source name="Box Component" type="PointSource">\n')
     box_string.append('   <spectrum file="box_spectrum.dat" type="FileFunction">\n')
-    box_string.append('     <parameter free="0" max="1e5" min="1e-35" name="Normalization" scale="1" value="'+str(box_flux/(energy-box_beginning))+'"/>\n')
+    box_string.append('     <parameter free="0" max="'+str(box_maximum*scale_factor**-1/box_width)+'" min="'+str(box_minimum*scale_factor**-1/box_width)+'" name="Normalization" scale="'+str(scale_factor)+'" value="'+str(box_flux*scale_factor**-1/box_width)+'"/>\n')
     box_string.append('   </spectrum>\n')
     box_string.append('  <spatialModel type="SkyDirFunction">\n')
     box_string.append('     <parameter free="0" max="360" min="-360" name="RA" scale="1" value="266.417" />\n')
     box_string.append('     <parameter free="0" max="90" min="-90" name="DEC" scale="1" value="-29.0079" />\n')
     box_string.append('   </spatialModel>\n')
     box_string.append(' </source>\n')
+
+    pedestal_maximum = 1e-8
+    pedestal_minimum = 0
     
-    file = open('xmlmodel_fixed_box.xml','w')
-    
+    box_string.append(' <source name="Pedestal" type="PointSource">\n')
+    box_string.append('   <spectrum file="box_spectrum.dat" type="FileFunction">\n')
+    box_string.append('     <parameter free="0" max="'+str(pedestal_maximum*scale_factor**-1/box_width)+'" min="'+str(pedestal_minimum*scale_factor**-1/box_width)+'" name="Normalization" scale="'+str(-1*scale_factor)+'" value="'+str(pedestal_minimum*scale_factor**-1/box_width)+'"/>\n')
+    box_string.append('   </spectrum>\n')
+    box_string.append('  <spatialModel type="SkyDirFunction">\n')
+    box_string.append('     <parameter free="0" max="360" min="-360" name="RA" scale="1" value="266.417" />\n')
+    box_string.append('     <parameter free="0" max="90" min="-90" name="DEC" scale="1" value="-29.0079" />\n')
+    box_string.append('   </spatialModel>\n')
+    box_string.append(' </source>\n')
+
+    box_xml_file = open('xmlmodel_fixed_box.xml','w')
+
     for entry in non_box_string[:-1]:
-        file.write(entry)
+        box_xml_file.write(entry)
     for entry in box_string:
-        file.write(entry)
-    file.write('</source_library>\n')
-    file.close()
+        box_xml_file.write(entry)
+    box_xml_file.write('</source_library>\n')
+    box_xml_file.close()
 
 #Likelihood from gtlikelihood module
-def loglikelihood3(energy, box_flux, obs):
-    
+
+#Likelihood from gtlikelihood module
+def loglikelihood3(energy, box_flux, obs, z, get_like=False, covar=False):
+
     #Next, edit the XML file to have the right flux and spectrum
-    edit_box_xml(energy, box_flux)
-    
+    edit_box_xml(energy, box_flux, z)
+
     #Do the fitting
-    like1 = BinnedAnalysis(obs, 'xmlmodel_fixed_box.xml', optimizer='NEWMINUIT')
+    like1 = BinnedAnalysis(obs, 'xmlmodel_fixed_box.xml', optimizer='DRMNFB')
     like1.tol=1e-8
     like1obj = pyLike.Minuit(like1.logLike)
-    q = like1.fit(verbosity=0,optObject=like1obj)
-    print "Log Likelihood = " + str(q)
-    return q
-
-#Likelihood from gtlikelihood module
-def likelihood_upper_limit3():
+    if covar:
+        q, c = like1.fit(verbosity=0,optObject=like1obj, covar=covar)
+        if get_like:
+            print "getting likelihood"
+            return q, like1
+        else:
+            return q
+    else:
+        q = like1.fit(verbosity=0, tol=1e10, optObject=like1obj, covar=covar, optimizer='DRMNFB')
+        
+        if get_like:
+            return q, like1
+        else:
+            return q
+        
+def likelihood_upper_limit3(z):
+    
     #Array to hold results of flux upper limit calculation
     num_ebins = 51 #1 more than the number of bins due to the fencepost problem
     energies = 10**np.linspace(np.log10(6000),np.log10(800000),num_ebins)
     ebin_widths = np.diff(energies)
     
-    sourcemap = '6gev_srcmap_03.fits'#'6gev_srcmap_complete.fits'
+    sourcemap = '6gev_srcmap_03_pedestal.fits'#'box_srcmap_artificial_box.fits'#'6gev_srcmap_complete.fits'
     box_flux = np.zeros((num_ebins-1))
-    ts = np.zeros((num_ebins-1))
-    gll_counts = np.zeros((num_ebins-1))
+    box_flux_bayesian = np.zeros((num_ebins-1))
+    box_flux_frequentist = np.zeros((num_ebins-1))
     
+    
+    corr = np.zeros((num_ebins-1))
+    corr2 = np.zeros((num_ebins-1))
+
+    gll_index = np.zeros((num_ebins-1))
+    disk_index = np.zeros((num_ebins-1))
     #reconstructed_spectra = np.zeros((num_ebins-1, num_ebins-1))
     #Loop through upper edge of box
     for index in range(6,48):
-        print "Calculating upper limit in bin " + str(index)
+        box_width = energies[index]*2.0*np.sqrt(1.0-z)/(1+np.sqrt(1.0-z))
+                
+        print "Calculating upper limit in bin " + str(index) + " at energy " + str(energies[index])
         #print "bin " + str(np.argmin(np.abs(energies-energy)))
         #window_low, window_high = window(energy, energies)
         
         window_low = index-6
         window_high = index+2
-        print "window low = " + str(window_low)
-        print "window high = " + str(window_high)
-        
+
         #Generate two observations (one above the window and one below)
         #Make two exposure maps
         if index>6:
@@ -234,10 +284,12 @@ def likelihood_upper_limit3():
             g = srcmap_complete[7]
             srcmap_complete[8].data = srcmap_complete[8].data[:window_low+1]
             h = srcmap_complete[8]
-            
+            srcmap_complete[9].data = srcmap_complete[9].data[:window_low+1]
+            m = srcmap_complete[9]
+
             os.system('rm srcmap_low.fits')
             b.header['DSVAL4'] = str()+':'+str()
-            hdulist = pyfits.HDUList([a, srcmap_complete[1], b, c, d, e, f, g, h])
+            hdulist = pyfits.HDUList([a, srcmap_complete[1], b, c, d, e, f, g, h, m])
             hdulist.writeto('srcmap_low.fits')
             srcmap_complete.close()
         
@@ -264,42 +316,44 @@ def likelihood_upper_limit3():
             g = srcmap_complete[7]
             srcmap_complete[8].data = srcmap_complete[8].data[window_high:]
             h = srcmap_complete[8]
-            
+            srcmap_complete[9].data = srcmap_complete[9].data[window_high:]
+            m = srcmap_complete[9]
+
             os.system('rm srcmap_high.fits')
-            hdulist = pyfits.HDUList([a, srcmap_complete[1], b, c, d, e, f, g, h])
+            hdulist = pyfits.HDUList([a, srcmap_complete[1], b, c, d, e, f, g, h, m])
             hdulist.writeto('srcmap_high.fits')
-        srcmap_complete.close()
-        
+            srcmap_complete.close()
+
         summedLike = SummedLikelihood()
-        
+
         if index>6:
             obs_low = BinnedObs(srcMaps='srcmap_low.fits', expCube='6gev_ltcube.fits', binnedExpMap='exposure_low.fits', irfs='CALDB')
             like_low = BinnedAnalysis(obs_low, 'xmlmodel_free.xml', optimizer='NEWMINUIT')
             summedLike.addComponent(like_low)
 
-
         if index<48:
             obs_high = BinnedObs(srcMaps='srcmap_high.fits', expCube='6gev_ltcube.fits', binnedExpMap='exposure_high.fits', irfs='CALDB')
             like_high = BinnedAnalysis(obs_high, 'xmlmodel_free.xml', optimizer='NEWMINUIT')
             summedLike.addComponent(like_high)
-
+        
+        print "Fitting SummedLikelihood"
         summedLike.ftol = 1e-8
-        summedLike.fit(verbosity=0)
+        summedLike.fit(verbosity=3)
         summedLike.writeXml('xmlmodel_free.xml')
         for k in range(len(summedLike.params())):
             summedLike.freeze(k)
         summedLike.writeXml('xmlmodel_fixed.xml')
         
+        print "Fitting all data"
         
+        calculation = 'poisson'
         obs_complete = BinnedObs(srcMaps=sourcemap, expCube='6gev_ltcube.fits', binnedExpMap='6gev_exposure.fits', irfs='CALDB')
-        
-        #Flucuate the window data
-        like = BinnedAnalysis(obs_complete, 'xmlmodel_fixed.xml', optimizer='NEWMINUIT')
+        edit_box_xml(100000.0,1e-15,0.0)
+        like = BinnedAnalysis(obs_complete, 'xmlmodel_fixed_box.xml', optimizer='MINUIT')
         like.tol=1e-8
         like_obj = pyLike.Minuit(like.logLike)
         like.fit(verbosity=3,optObject=like_obj)
-        complete_spectrum = like.nobs#
-        gll_counts[index] =float(like._srcCnts('gll_iem_v05')[index]/like._srcCnts('Disk Component')[index])
+        like.writeXml('xmlmodel_fixed_box.xml')
         
         #Flucuate the window data
         f = pyfits.open(sourcemap)
@@ -307,7 +361,7 @@ def likelihood_upper_limit3():
         q = 0
         for bin in range(max(window_low,0), min(window_high,49)):
             for source in like.sourceNames():
-                for j in range(3,9):
+                for j in range(3,10):
                     if source == f[j].header['EXTNAME']:
                         the_index = j
                     model_counts = np.zeros((1,len(f[the_index].data[bin].ravel())))[0]
@@ -322,73 +376,113 @@ def likelihood_upper_limit3():
         os.system('rm box_srcmap_poisson.fits')
         f.writeto('box_srcmap_poisson.fits')
         f.close()
-
+        
         obs_poisson = BinnedObs(srcMaps='box_srcmap_poisson.fits', expCube='6gev_ltcube.fits', binnedExpMap='6gev_exposure.fits', irfs='CALDB')
-    
-    
-        like = BinnedAnalysis(obs_poisson, 'xmlmodel_fixed.xml', optimizer='NEWMINUIT')
+        like = BinnedAnalysis(obs_poisson, 'xmlmodel_fixed_box.xml', optimizer='NEWMINUIT')
         like.tol=1e-8
         like_obj = pyLike.Minuit(like.logLike)
         like.fit(verbosity=0,optObject=like_obj)
-        poisson_spectrum = like.nobs
+            
+        if calculation == 'complete':
+             obs_calculation=obs_complete
+        else:
+            obs_calculation= obs_poisson
         
-        obs_calculation = obs_poisson #obs_poisson or obs_complete
-        """
-        #Plot likelihood profile
-        mylikelihood = np.zeros((100))
-        b = 0
-        for boxflux in 10**np.linspace(-11, -7.5, 100):
-        mylikelihood[b] = loglikelihood3(50000, boxflux, obs_calculation)
-        b += 1
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
-        plt.xscale('log')
-        plt.plot(10**np.linspace(-11, -7.5, 100), -1.0*mylikelihood, linewidth=2, color='blue')
-        plt.axvline(2.*10**-9, linestyle='--', color='black')
-        plt.show()
-        raw_input('wait for key')
-        """
-        box_flux[index] = 10.**-13
-
-        null_likelihood = loglikelihood3(energies[index], 10.**-25, obs_calculation)
-        old_likelihood=null_likelihood
-        while loglikelihood3(energies[index], box_flux[index], obs_calculation)<old_likelihood:
-            old_likelihood = loglikelihood3(energies[index], box_flux[index], obs_calculation)
-            box_flux[index] *= 1.3
-        box_flux[index] = box_flux[index]/1.3
-        ts[index] = 2.0*(loglikelihood3(energies[index], box_flux[index], obs_calculation)-null_likelihood)
-
+            
+        print "Finding Upper Limit..."
+        null_likelihood = loglikelihood3(energies[index], 1.0e-15, obs_calculation, z)
+        delta_loglike = 0.0
+        
+        
         #increase box flux until likelihood > 2sigma over null likelihood
-        box_flux[index] = 10.**-13
-        while sigma_given_p(pvalue_given_chi2(2.0*(loglikelihood3(energies[index], box_flux[index], obs_calculation)-null_likelihood),3))<2.0:
-            box_flux[index]*=5.0
-        box_flux[index]*=1.0/5.0
-        while sigma_given_p(pvalue_given_chi2(2.0*(loglikelihood3(energies[index], box_flux[index], obs_calculation)-null_likelihood),3))<2.0:
-            box_flux[index]*=1.1
-        box_flux[index]*=1.0/1.1
-        while sigma_given_p(pvalue_given_chi2(2.0*(loglikelihood3(energies[index], box_flux[index], obs_calculation)-null_likelihood),3))<2.0:
-            box_flux[index]*=1.03
+        box_flux[index] = 3.e-15
+        crit_chi2 = 2.706
+        while delta_loglike <crit_chi2:
+            print "delta loglike = " + str(delta_loglike)
+            print "flux = " + str(box_flux[index]) + " likelihood = " + str(loglikelihood3(energies[index], box_flux[index], obs_calculation, z))
+            box_flux[index]*=3.0                
+            delta_loglike = 2.0*(loglikelihood3(energies[index], box_flux[index], obs_calculation,z)-null_likelihood)
+            
+        box_flux[index]*=1.0/3.0
+        delta_loglike = 2.0*(loglikelihood3(energies[index], box_flux[index], obs_calculation,z)-null_likelihood)
+        print "Delta loglike = " + str(delta_loglike)
+        while delta_loglike <crit_chi2:
+            print "delta loglike = " + str(delta_loglike)
+            print "flux = " + str(box_flux[index]) + " likelihood = " + str(loglikelihood3(energies[index], box_flux[index], obs_calculation, z))
+            box_flux[index]*=1.5
+            delta_loglike = 2.0*(loglikelihood3(energies[index], box_flux[index], obs_calculation,z)-null_likelihood)
+            
+        box_flux[index]*=1.0/1.5
+        delta_loglike = 2.0*(loglikelihood3(energies[index], box_flux[index], obs_calculation,z)-null_likelihood)
         
-        print box_flux[index]
-        """
+        while delta_loglike <crit_chi2:
+            print "delta loglike = " + str(delta_loglike)
+            print "flux = " + str(box_flux[index]) + " likelihood = " + str(loglikelihood3(energies[index], box_flux[index], obs_calculation, z))
+            box_flux[index]*=1.03
+            delta_loglike = 2.0*(loglikelihood3(energies[index], box_flux[index], obs_calculation,z)-null_likelihood)
+            
+        box_flux[index]*= 1.0/1.03
+        delta_loglike = 2.0*(loglikelihood3(energies[index], box_flux[index], obs_calculation,z)-null_likelihood)
+        
+        print "delta log like = " + str(delta_loglike)
+        
+    
+        
+        calc_cov = False
+        if calc_cov:
+            like1 = BinnedAnalysis(obs_calculation, 'xmlmodel_fixed_box.xml', optimizer='DRMNFB')
+            
+            like1.thaw(like1.par_index('Disk Component','Index'))
+            like1.thaw(like1.par_index('Disk Component','Prefactor'))
+            like1.thaw(like1.par_index('Box Component','Normalization'))
+            like1.tol=1e-5
+            like1obj = pyLike.Minuit(like1.logLike)
+            like1.fit(verbosity=0,optObject=like1obj, covar=False)
+
+            like1.writeXml('xmlmodel_fixed_box.xml')
+            
+            like2 = BinnedAnalysis(obs_calculation, 'xmlmodel_fixed_box.xml', optimizer='NewMinuit')
+            like2.tol=1e-8
+            like2obj = pyLike.Minuit(like1.logLike)
+            like2.fit(verbosity=3,optObject=like1obj, covar=True)
+            
+            
+            #ul = UpperLimit(like1,'Box Component')
+            #ul.compute(emin=100.0,emax=500000, delta=3.91)
+            
+            #box_flux_bayesian[index] = float(ul.bayesianUL()[0])
+            #box_flux_frequentist[index] = float(ul.results[0].value)            
+            print like2.covariance
+            print 'Return code: ' + str(like2obj.getRetCode())
+            cov = like2.covariance
+            corr[index] = cov[0][1]/np.sqrt(cov[0][0]*cov[1][1])
+            corr2[index] = cov[0][2]/np.sqrt(cov[0][0]*cov[2][2])
+            print "Correlations:"
+            print corr[index]
+            print corr2[index]
+            #if like2obj.getRetCode()!=0:
+            plot_spectrum(like2, energies, index, window_low, window_high)
+    
+    if calc_cov:
+        file = open('correlation_results.pk1', 'wb')
+        pickle.dump([corr, corr2, box_flux_bayesian, box_flux_frequentist],file)
+        file.close()
+        
         fig = plt.figure()
         ax = fig.add_subplot(111)
-        plt.plot(energies[:-1], window_spectrum, linewidth=2., color='blue', label='Reconstructed spectrum')
-        plt.errorbar(energies[:-1], poisson_spectrum, xerr=0, yerr=np.sqrt(poisson_spectrum), fmt='o', color='red', label='Poisson fluctuations')
-        plt.errorbar(energies[:-1], complete_spectrum, xerr=0, yerr=np.sqrt(complete_spectrum), fmt='o', color='black',label='Actual data')
-        plt.axvspan(energies[window_low]-0.5*ebin_widths[window_low], energies[window_high]-0.5*ebin_widths[window_high], alpha=0.3, color='black', label='Window')
+        ax.plot(energies[np.nonzero(corr)],corr[np.nonzero(corr)], color='blue', label='Box vs GC Prefactor')
+        ax.plot(energies[np.nonzero(corr2)],corr2[np.nonzero(corr2)], color='red', label='Box vs GC index')
+        plt.ylim([-1.0, 1.0])
+    
         plt.legend()
-        ax.set_yscale('log')
-        ax.set_xscale('log')
-        ax.set_xlim([8000.0, 800000])
-        plt.title('Bin ' + str(index))
+        plt.xscale('log')
+    
+        
         plt.show()
-        raw_input('wait for key')
-        """
-    return box_flux, ts#box_flux#, reconstructed_spectra
+    
+    return box_flux
 
-
-mc_ul, ts = likelihood_upper_limit3()
-file = open('/nfs/farm/g/glast/u/johnsarc/p-wave_DM/6gev/'+os.environ['LSB_JOBID']+'.pk1','wb')
-pickle.dump([mc_ul,ts],file)
+mc_ul = likelihood_upper_limit3(z=0.44)
+file = open('/nfs/farm/g/glast/u/johnsarc/p-wave_DM/6gev/wide_box/'+os.environ['LSB_JOBID']+'.pk1','wb')
+pickle.dump(mc_ul,file)
 file.close()

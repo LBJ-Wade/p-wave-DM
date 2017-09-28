@@ -8,6 +8,9 @@ import pyfits
 import pickle
 from BinnedAnalysis import *
 import matplotlib.colors as colors
+from matplotlib.pyplot import rc
+from matplotlib import rcParams
+
 from astropy.visualization.wcsaxes.frame import EllipticalFrame
 
 from astropy.io import fits
@@ -16,11 +19,44 @@ from astropy.utils.data import get_pkg_data_filename
 from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.table import Table
+from scipy.signal import convolve2d
 
 gc_l = 359.94425518526566
 gc_b = -0.04633599860905694
 gc_ra = 266.417
 gc_dec = -29.0079
+
+
+def setup_plot_env():
+    #Set up figure
+    #Plotting parameters
+    fig_width = 8   # width in inches
+    fig_height = 8  # height in inches
+    fig_size =  [fig_width, fig_height]
+    rcParams['font.family'] = 'serif'
+    rcParams['font.weight'] = 'bold'
+    rcParams['axes.labelsize'] = 20
+    rcParams['font.size'] = 20
+    rcParams['axes.titlesize'] =16
+    rcParams['legend.fontsize'] = 16
+    rcParams['xtick.labelsize'] =20
+    rcParams['ytick.labelsize'] =20
+    rcParams['figure.figsize'] = fig_size
+    rcParams['xtick.major.size'] = 8
+    rcParams['ytick.major.size'] = 8
+    rcParams['xtick.minor.size'] = 4
+    rcParams['ytick.minor.size'] = 4
+    rcParams['xtick.major.pad'] = 8
+    rcParams['ytick.major.pad'] = 8
+    
+    rcParams['figure.subplot.left'] = 0.16
+    rcParams['figure.subplot.right'] = 0.92
+    rcParams['figure.subplot.top'] = 0.90
+    rcParams['figure.subplot.bottom'] = 0.12
+    rcParams['text.usetex'] = True
+    rc('text.latex', preamble=r'\usepackage{amsmath}')
+setup_plot_env()
+
 
 def factorial2(x):
     result = 1.
@@ -101,6 +137,11 @@ def ra_dec_to_l_b(ra_input, dec_input):
     b = SkyCoord(ra=ra_input*u.degree,dec=dec_input*u.degree).galactic.b.degree
     return l, b
 
+def l_b_to_ra_dec(l_input, b_input):
+    ra = SkyCoord(l=l_input*u.degree,b=b_input*u.degree,frame='galactic').icrs.ra.degree
+    dec = SkyCoord(l=l_input*u.degree,b=b_input*u.degree,frame='galactic').icrs.dec.degree
+    return ra, dec
+    
 
 def make_model_cubes():
     models = ['few_src']#, '3fgl_disk', '1fig', '3fgl']
@@ -132,26 +173,24 @@ def make_model_cubes():
     return results
 
 #Make a residual map given a particular model (from the function make_model_cubes)
-def make_residual_map():
+def make_ROI_map(type):
     
     obs_complete = BinnedObs(srcMaps='/Users/christian/physics/p-wave/6gev/6gev_srcmap_03.fits', expCube='/Users/christian/physics/p-wave/6gev/6gev_ltcube.fits', binnedExpMap='/Users/christian/physics/p-wave/6gev/6gev_exposure.fits', irfs='CALDB')
     
     #Flucuate the window data
     like = BinnedAnalysis(obs_complete, 'xmlmodel_free.xml', optimizer='NEWMINUIT')
-    like.tol=1e-8
+    like.tol=1e-10
     like_obj = pyLike.Minuit(like.logLike)
     likelihood = like.fit(verbosity=3,optObject=like_obj)
+    like.writeXml('xmlmodel_free.xml')
 
     f = pyfits.open('6gev_srcmap_03.fits')
     my_arr = np.zeros((50,50))
     for source in like.sourceNames():
-        print "source = " + str(source)
-        print like._srcCnts(source)
         for j in range(3,9):
             if source == f[j].header['EXTNAME']:
                 the_index = j
-        print "reconstructed source: " + str(f[the_index].header['EXTNAME'])
-        for bin in range(5,50):
+        for bin in range(50):
             num_photons = like._srcCnts(source)[bin]
             model_counts = num_photons*f[the_index].data[bin]/np.sum(np.sum(f[the_index].data[bin]))
             my_arr += model_counts
@@ -193,16 +232,11 @@ def make_residual_map():
     plt.ylabel('Galactic Latitude')
     ax.grid(color='white',ls='dotted')
     """
-    ax=fig.add_subplot(111,projection=wcs)
-    ax=plt.gca()
-    resid = image_data
+    resid = image_data-my_arr
     resid_sigma = np.zeros((len(resid.ravel()), 1))
     model_array = my_arr.ravel()
     for q in range(len(resid_sigma)):
         resid_sigma[q] = frequentist_counts_significance(float(resid.ravel()[q]), float(model_array[q]))
-        if resid_sigma[q] < -20.0:
-            print resid.ravel()[q]
-            print model_array[q]
     resid_sigma = np.reshape(resid_sigma,[50,50])
 
     """
@@ -214,17 +248,52 @@ def make_residual_map():
     l, b = ra_dec_to_l_b(266.5942898, -28.86244442)
     plt.scatter([l], [b], color='black',marker='x',s=45.0,transform=ax.get_transform('galactic'))
     """
+    kernel = np.array([[1.0, 1.0, 1.0],[1.0, 1.0, 1.0], [1.0, 1.0,1.0]])/9.0
+    
+    ax=fig.add_subplot(111,projection=wcs)
+    ax=plt.gca()
+    
     c = Wedge((gc_l, gc_b), 1.0, theta1=0.0, theta2=360.0, width=14.0, edgecolor='black', facecolor='#474747', transform=ax.get_transform('galactic'))
     ax.add_patch(c)
-    mappable=plt.imshow(image_data,cmap='inferno',origin='lower',norm=colors.PowerNorm(gamma=0.6), interpolation='bicubic')#
-    #mappable=plt.imshow(resid_sigma,cmap='seismic',origin='lower',norm=colors.SymLogNorm(linthresh=5,linscale=1.0),vmin=-5.0,vmax=5.0, interpolation='bicubic')
-    cb = plt.colorbar(mappable,label='Counts per pixel')
-    mappable.set_clip_path(ax.coords.frame.patch)
-    plt.xlabel('Galactic Longitude')
-    plt.ylabel('Galactic Latitude')
-    ax.grid(color='white',ls='dotted')
-    plt.savefig('plots/ROI_6gev.pdf',bbox_inches='tight')
-    plt.show()
+    if type == 'Data':
+        mappable=plt.imshow(image_data,cmap='inferno',origin='lower',norm=colors.PowerNorm(gamma=0.6),vmin=0, vmax=65, interpolation='bicubic')#
+        cb = plt.colorbar(mappable,label='Counts per pixel')
+        mappable.set_clip_path(ax.coords.frame.patch)
+        plt.xlabel('Galactic Longitude')
+        plt.ylabel('Galactic Latitude')
+        ax.grid(color='white',ls='dotted')
+        plt.savefig('plots/6gev_ROI_03.pdf',bbox_inches='tight')
+        plt.show()
+        
+    if type == 'Resid':
+        resid = image_data-my_arr
+        mappable=plt.imshow(resid, cmap='seismic',origin='lower', vmin=-20, vmax=20, interpolation='bicubic')#norm=colors.SymLogNorm(linthresh=5,linscale=1.0),
+        cb = plt.colorbar(mappable,label='Counts per pixel')
+        mappable.set_clip_path(ax.coords.frame.patch)
+        plt.xlabel('Galactic Longitude')
+        plt.ylabel('Galactic Latitude')
+        ax.grid(color='black',ls='dotted')
+        plt.savefig('plots/6gev_resid_03.pdf',bbox_inches='tight')
+        
+    if type == 'Sigma':
+        mappable=plt.imshow(resid_sigma,cmap='seismic',origin='lower',vmin=-5.0,vmax=5.0, interpolation='bicubic')#norm=colors.SymLogNorm(linthresh=5,linscale=1.0),
+        cb = plt.colorbar(mappable,label='Counts per pixel')
+        mappable.set_clip_path(ax.coords.frame.patch)
+        plt.xlabel('Galactic Longitude')
+        plt.ylabel('Galactic Latitude')
+        ax.grid(color='white',ls='dotted')
+        plt.savefig('plots/6gev_sigma_03.pdf',bbox_inches='tight')
+        
+    if type == 'Model':
+        mappable=plt.imshow(my_arr,cmap='inferno',origin='lower',norm=colors.PowerNorm(gamma=0.6), vmin=0, vmax=65, interpolation='bicubic')#
+        cb = plt.colorbar(mappable,label='Counts per pixel')
+        mappable.set_clip_path(ax.coords.frame.patch)
+        plt.xlabel('Galactic Longitude')
+        plt.ylabel('Galactic Latitude')
+        ax.grid(color='white',ls='dotted')
+        plt.savefig('plots/6gev_model_03.pdf',bbox_inches='tight')
+    
+        
 
 #0.04 degrees: 15798.5084759
 #0.03 degrees: 15797.2262217
@@ -232,6 +301,7 @@ def make_residual_map():
 #0.01 degrees: 15808.9181639
 #pt source: 15808.1352914
 #code to make a python list of dictionaries of 3fgl sources
+
 def make_fgl_pk1():
     g = pyfits.open('/Users/christian/physics/PBHs/3FGL.fits')
     j = []
@@ -342,10 +412,9 @@ def make_overlay_plot(catalog):
     plt.ylabel('Galactic Latitude')
     #plt.savefig('plots/'+catalog+'_overlay.png',bbox_inches='tight')
     plt.show()
-#make_model_cubes()
-#make_overlay_plot('1fig')
-#make_overlay_plot('3fgl')
-make_residual_map()
-#make_residual_map('3fgl_disk', results)
-#make_residual_map('1fig', results)
-#make_residual_map('3fgl', results)
+
+def main():
+    make_ROI_map('Sigma')
+
+if __name__=='__main__':
+    main()
