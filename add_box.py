@@ -58,9 +58,10 @@ plt.show()
 num_ebins = 51
 energies = 10**np.linspace(np.log10(6000),np.log10(800000),num_ebins)
 ebin_widths = np.diff(energies)
-box_flux = 2.0*10**-10#total flux
+box_flux = 3.0*10**-10#total flux
 endpoint_e = 100000#MeV, aka 100 GeV
 dnde = box_flux/endpoint_e #flux per MeV
+zeta = 0.44 #determines width of box
 
 box_counts = np.zeros((num_ebins-1))
 exposures = np.zeros((num_ebins-1))
@@ -79,10 +80,18 @@ for i in range(len(exposurefile[0].data)-1):
 exposurefile.close()
 
 
-
-#Account for energy dispersion
+box_width = endpoint_e*2.0*np.sqrt(1.0-zeta)/(1+np.sqrt(1.0-zeta))
+box_beginning = endpoint_e-box_width
+#Edit box_spectrum.dat
+spectrum_file = open('box_spectrum.dat','w')
+#What's the normalization constant here?
+#Total flux is E_edge*function value
+#Function_value = total_flux/E_edge
 x_fine_grid = np.linspace(0.0, 800000, 10000)
-pure_box = np.concatenate([1.0+np.zeros((int(np.argmin(np.abs(x_fine_grid-endpoint_e))))),np.zeros((10000-int(np.argmin(np.abs(x_fine_grid-endpoint_e)))))])
+n_leading_zeros = int(np.argmin(np.abs(x_fine_grid-box_beginning)))
+n_trailing_zeros = 10000-int(np.argmin(np.abs(x_fine_grid-endpoint_e)))
+n_box_width = int(10000-n_leading_zeros-n_trailing_zeros)
+pure_box = np.concatenate([np.zeros((n_leading_zeros)),np.concatenate([1.0+np.zeros((n_box_width)),np.zeros((n_trailing_zeros))])])
 
 #Sigma here is the absolute energy resolution as a function of energy
 sigma = e_res(endpoint_e)*endpoint_e*10000./800000.0
@@ -130,7 +139,7 @@ for i in range(num_ebins-1):
     for photon in range(num_photons):
         phot_loc = int(make_random(np.arange(0,len(model_counts), 1), f[6].data[i].ravel()))
         model_counts[phot_loc] += 1
-        
+
 
     model_counts = model_counts.reshape(50, 50)
     f[0].data[i] += model_counts

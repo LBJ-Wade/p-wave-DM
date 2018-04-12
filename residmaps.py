@@ -4,12 +4,12 @@ from matplotlib.patches import Wedge, Circle
 from scipy.special import gammainc
 from scipy.misc import factorial
 import math
-import pyfits
 import pickle
-from BinnedAnalysis import *
+#from BinnedAnalysis import *
 import matplotlib.colors as colors
 from matplotlib.pyplot import rc
 from matplotlib import rcParams
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from astropy.visualization.wcsaxes.frame import EllipticalFrame
 
@@ -20,6 +20,8 @@ from astropy import units as u
 from astropy.coordinates import SkyCoord
 from astropy.table import Table
 from scipy.signal import convolve2d
+
+#from upper_limit import AnalyticAnalysis
 
 gc_l = 359.94425518526566
 gc_b = -0.04633599860905694
@@ -35,20 +37,21 @@ def setup_plot_env():
     fig_size =  [fig_width, fig_height]
     rcParams['font.family'] = 'serif'
     rcParams['font.weight'] = 'bold'
-    rcParams['axes.labelsize'] = 20
-    rcParams['font.size'] = 20
+    rcParams['axes.labelsize'] = 14
+    rcParams['font.size'] = 14
     rcParams['axes.titlesize'] =16
-    rcParams['legend.fontsize'] = 16
-    rcParams['xtick.labelsize'] =20
-    rcParams['ytick.labelsize'] =20
+    rcParams['legend.fontsize'] = 10
+    rcParams['xtick.labelsize'] =12
+    rcParams['ytick.labelsize'] =12
     rcParams['figure.figsize'] = fig_size
     rcParams['xtick.major.size'] = 8
     rcParams['ytick.major.size'] = 8
     rcParams['xtick.minor.size'] = 4
     rcParams['ytick.minor.size'] = 4
-    rcParams['xtick.major.pad'] = 8
-    rcParams['ytick.major.pad'] = 8
-    
+    rcParams['xtick.major.pad'] = 4
+    rcParams['ytick.major.pad'] = 4
+    rcParams['xtick.direction'] = 'in'
+    rcParams['ytick.direction'] = 'in'
     rcParams['figure.subplot.left'] = 0.16
     rcParams['figure.subplot.right'] = 0.92
     rcParams['figure.subplot.top'] = 0.90
@@ -56,7 +59,6 @@ def setup_plot_env():
     rcParams['text.usetex'] = True
     rc('text.latex', preamble=r'\usepackage{amsmath}')
 setup_plot_env()
-
 
 def factorial2(x):
     result = 1.
@@ -141,7 +143,7 @@ def l_b_to_ra_dec(l_input, b_input):
     ra = SkyCoord(l=l_input*u.degree,b=b_input*u.degree,frame='galactic').icrs.ra.degree
     dec = SkyCoord(l=l_input*u.degree,b=b_input*u.degree,frame='galactic').icrs.dec.degree
     return ra, dec
-    
+
 
 def make_model_cubes():
     models = ['few_src']#, '3fgl_disk', '1fig', '3fgl']
@@ -174,16 +176,72 @@ def make_model_cubes():
 
 #Make a residual map given a particular model (from the function make_model_cubes)
 def make_ROI_map(type):
-    
-    obs_complete = BinnedObs(srcMaps='/Users/christian/physics/p-wave/6gev/6gev_srcmap_03.fits', expCube='/Users/christian/physics/p-wave/6gev/6gev_ltcube.fits', binnedExpMap='/Users/christian/physics/p-wave/6gev/6gev_exposure.fits', irfs='CALDB')
-    
-    #Flucuate the window data
-    like = BinnedAnalysis(obs_complete, 'xmlmodel_free.xml', optimizer='NEWMINUIT')
-    like.tol=1e-10
-    like_obj = pyLike.Minuit(like.logLike)
-    likelihood = like.fit(verbosity=3,optObject=like_obj)
-    like.writeXml('xmlmodel_free.xml')
 
+    obs_complete = BinnedObs(srcMaps='/Users/christian/physics/p-wave/6gev/6gev_srcmap_03.fits', expCube='/Users/christian/physics/p-wave/6gev/6gev_ltcube.fits', binnedExpMap='/Users/christian/physics/p-wave/6gev/6gev_exposure.fits', irfs='CALDB')
+
+    like = BinnedAnalysis(obs_complete, 'xmlmodel.xml', optimizer='NEWMINUIT')
+    sourcemap = like.binnedData.srcMaps
+    f = pyfits.open(sourcemap)
+
+    image_data = fits.getdata('6gev_image.fits')
+    filename = get_pkg_data_filename('6gev_image.fits')
+    hdu = fits.open(filename)[0]
+    wcs = WCS(hdu.header)
+
+    #Given the results of the fit, calculate the model
+    model_data = np.zeros(f[0].shape)
+    for source in like.sourceNames():
+        the_index = f.index_of(source)
+        model_data += like._srcCnts(source)[:, None, None]*f[the_index].data[:-1, :, :]/np.sum(np.sum(f[the_index].data, axis=2), axis=1)[:-1, None, None]
+    actual_data = np.array(like.binnedData.countsMap.data()).reshape(f[0].shape)
+
+    fig = plt.figure(figsize=[14,6])
+
+    ax = fig.add_subplot(131, projection=wcs)
+    ax=plt.gca()
+
+    c = Wedge((gc_l, gc_b), 1.0, theta1=0.0, theta2=360.0, width=14.0, edgecolor='black', facecolor='#474747', transform=ax.get_transform('galactic'))
+    ax.add_patch(c)
+    mappable=plt.imshow(np.sum(actual_data, axis=0),cmap='inferno',origin='lower',norm=colors.PowerNorm(gamma=0.6),vmin=0, vmax=65, interpolation='gaussian')#
+    plt.xlabel('Galactic Longitude')
+    plt.ylabel('Galactic Latitude')
+    plt.title('Data')
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    cb = plt.colorbar(mappable, cax=cax, label='Counts per pixel')
+
+    ax2=fig.add_subplot(132, projection=wcs)
+    ax2 = plt.gca()
+    c2 = Wedge((gc_l, gc_b), 1.0, theta1=0.0, theta2=360.0, width=14.0, edgecolor='black', facecolor='#474747', transform=ax2.get_transform('galactic'))
+    ax2.add_patch(c2)
+    mappable2 = plt.imshow(np.sum(model_data, axis=0), cmap='inferno',origin='lower',norm=colors.PowerNorm(gamma=0.6),vmin=0, vmax=65, interpolation='gaussian')
+    plt.xlabel('Galactic Longitude')
+    plt.ylabel('Galactic Latitude')
+    plt.title('Model')
+    divider2 = make_axes_locatable(ax2)
+    cax2 = divider2.append_axes("right", size="5%", pad=0.05)
+    cb2 = plt.colorbar(mappable2, cax=cax2, label='Counts per pixel')
+
+    ax3=fig.add_subplot(133, projection=wcs)
+    ax3 = plt.gca()
+    c3 = Wedge((gc_l, gc_b), 1.0, theta1=0.0, theta2=360.0, width=14.0, edgecolor='black', facecolor='#474747', transform=ax3.get_transform('galactic'))
+    ax3.add_patch(c3)
+    mappable3 = plt.imshow(np.sum(actual_data, axis=0)-np.sum(model_data, axis=0), cmap='seismic',origin='lower', vmin=-20, vmax=20, interpolation='gaussian')#
+    plt.xlabel('Galactic Longitude')
+    plt.ylabel('Galactic Latitude')
+    plt.title('Residuals')
+    divider3 = make_axes_locatable(ax3)
+    cax3 = divider3.append_axes("right", size="5%", pad=0.05)
+    cb3 = plt.colorbar(mappable3, cax=cax3, label='Counts per pixel')
+    fig.tight_layout()
+
+    plt.show()
+
+    #like.tol=1e-10
+    #like_obj = pyLike.Minuit(like.logLike)
+    #likelihood = like.fit(verbosity=3,optObject=like_obj)
+    #like.writeXml('xmlmodel.xml')
+    """
     f = pyfits.open('6gev_srcmap_03.fits')
     my_arr = np.zeros((50,50))
     for source in like.sourceNames():
@@ -196,7 +254,7 @@ def make_ROI_map(type):
             my_arr += model_counts
     f.close()
     print "likelihood = " + str(likelihood)
-
+    """
     image_data = fits.getdata('6gev_image.fits')
     filename = get_pkg_data_filename('6gev_image.fits')
     hdu = fits.open(filename)[0]
@@ -231,7 +289,7 @@ def make_ROI_map(type):
     plt.xlabel('Galactic Longitude')
     plt.ylabel('Galactic Latitude')
     ax.grid(color='white',ls='dotted')
-    """
+
     resid = image_data-my_arr
     resid_sigma = np.zeros((len(resid.ravel()), 1))
     model_array = my_arr.ravel()
@@ -239,7 +297,7 @@ def make_ROI_map(type):
         resid_sigma[q] = frequentist_counts_significance(float(resid.ravel()[q]), float(model_array[q]))
     resid_sigma = np.reshape(resid_sigma,[50,50])
 
-    """
+
     plt.scatter([359.9442], [-00.0462], color='black',marker='x',s=45.0,transform=ax.get_transform('world'))
     l, b = ra_dec_to_l_b(266.3434922, -29.06274323)
     plt.scatter([l], [b], color='black',marker='x',s=45.0,transform=ax.get_transform('galactic'))
@@ -249,10 +307,10 @@ def make_ROI_map(type):
     plt.scatter([l], [b], color='black',marker='x',s=45.0,transform=ax.get_transform('galactic'))
     """
     kernel = np.array([[1.0, 1.0, 1.0],[1.0, 1.0, 1.0], [1.0, 1.0,1.0]])/9.0
-    
+
     ax=fig.add_subplot(111,projection=wcs)
     ax=plt.gca()
-    
+
     c = Wedge((gc_l, gc_b), 1.0, theta1=0.0, theta2=360.0, width=14.0, edgecolor='black', facecolor='#474747', transform=ax.get_transform('galactic'))
     ax.add_patch(c)
     if type == 'Data':
@@ -264,7 +322,7 @@ def make_ROI_map(type):
         ax.grid(color='white',ls='dotted')
         plt.savefig('plots/6gev_ROI_03.pdf',bbox_inches='tight')
         plt.show()
-        
+
     if type == 'Resid':
         resid = image_data-my_arr
         mappable=plt.imshow(resid, cmap='seismic',origin='lower', vmin=-20, vmax=20, interpolation='bicubic')#norm=colors.SymLogNorm(linthresh=5,linscale=1.0),
@@ -274,7 +332,7 @@ def make_ROI_map(type):
         plt.ylabel('Galactic Latitude')
         ax.grid(color='black',ls='dotted')
         plt.savefig('plots/6gev_resid_03.pdf',bbox_inches='tight')
-        
+
     if type == 'Sigma':
         mappable=plt.imshow(resid_sigma,cmap='seismic',origin='lower',vmin=-5.0,vmax=5.0, interpolation='bicubic')#norm=colors.SymLogNorm(linthresh=5,linscale=1.0),
         cb = plt.colorbar(mappable,label='Counts per pixel')
@@ -283,7 +341,7 @@ def make_ROI_map(type):
         plt.ylabel('Galactic Latitude')
         ax.grid(color='white',ls='dotted')
         plt.savefig('plots/6gev_sigma_03.pdf',bbox_inches='tight')
-        
+
     if type == 'Model':
         mappable=plt.imshow(my_arr,cmap='inferno',origin='lower',norm=colors.PowerNorm(gamma=0.6), vmin=0, vmax=65, interpolation='bicubic')#
         cb = plt.colorbar(mappable,label='Counts per pixel')
@@ -292,8 +350,6 @@ def make_ROI_map(type):
         plt.ylabel('Galactic Latitude')
         ax.grid(color='white',ls='dotted')
         plt.savefig('plots/6gev_model_03.pdf',bbox_inches='tight')
-    
-        
 
 #0.04 degrees: 15798.5084759
 #0.03 degrees: 15797.2262217
@@ -413,8 +469,205 @@ def make_overlay_plot(catalog):
     #plt.savefig('plots/'+catalog+'_overlay.png',bbox_inches='tight')
     plt.show()
 
-def main():
-    make_ROI_map('Sigma')
+def residmapComparison():
+    """
+    Making Figure 2 in the paper (comparing the residuals between the GC point source model and GC extended source model)
+    """
+    srcmap001 = fits.open('6gev_srcmap_001.fits')
+    srcmap03 = fits.open('6gev_srcmap_03.fits')
 
+    image_data = fits.getdata('6gev_image.fits')
+    filename = get_pkg_data_filename('6gev_image.fits')
+    hdu = fits.open(filename)[0]
+    wcs = WCS(hdu.header)
+
+    #Given the results of the fit, calculate the model
+    modelData001 = np.zeros(srcmap001[0].shape)
+    modelData03 = np.zeros(srcmap03[0].shape)
+
+    file = open('fitResults001.pk1','rb')
+    fit001 = pickle.load(file)
+    file.close()
+
+    file = open('fitResults03.pk1','rb')
+    fit03 = pickle.load(file)
+    file.close()
+
+
+    for source in fit001:
+        the_index = srcmap001.index_of(source)
+
+        modelData001 += fit001[source][:, None, None]*srcmap001[the_index].data[:-1, :, :]/np.sum(np.sum(srcmap001[the_index].data, axis=2), axis=1)[:-1, None, None]
+    for source in fit03:
+        the_index = srcmap03.index_of(source)
+        modelData03 += fit03[source][:, None, None]*srcmap03[the_index].data[:-1, :, :]/np.sum(np.sum(srcmap03[the_index].data, axis=2), axis=1)[:-1, None, None]
+
+    fig = plt.figure(figsize=[12, 4.5])
+
+    vmin = -25.0
+    vmax = 25.0
+    cbStep = 5.0
+    ax = fig.add_subplot(121, projection=wcs)
+    ax=plt.gca()
+    ax.tick_params(direction='in')
+    c = Wedge((gc_l, gc_b), 1.0, theta1=0.0, theta2=360.0, width=14.0, edgecolor='black', facecolor='#474747', transform=ax.get_transform('galactic'))
+    ax.add_patch(c)
+    mappable=plt.imshow((image_data-np.sum(modelData001,axis=0)),cmap='seismic',origin='lower',vmin=vmin, vmax=vmax, interpolation='gaussian')#
+    plt.xlabel('Galactic Longitude')
+    plt.ylabel('Galactic Latitude')
+    plt.title('GC Point Source ($>6$ GeV)')
+    cb = plt.colorbar(mappable, label='Residual counts per pixel', pad=0.01,ticks=np.arange(vmin, vmax+cbStep, cbStep))
+    cb.ax.tick_params(width=0)
+
+
+    ax2=fig.add_subplot(122, projection=wcs)
+    ax2 = plt.gca()
+    c2 = Wedge((gc_l, gc_b), 1.0, theta1=0.0, theta2=360.0, width=14.0, edgecolor='black', facecolor='#474747', transform=ax2.get_transform('galactic'))
+    ax2.add_patch(c2)
+    mappable2 = plt.imshow((image_data-np.sum(modelData03,axis=0)), cmap='seismic',origin='lower',vmin=vmin, vmax=vmax, interpolation='gaussian')
+    plt.xlabel('Galactic Longitude')
+    plt.ylabel('Galactic Latitude')
+    plt.title('GC Extended Source ($>6$ GeV)')
+    cb2 = plt.colorbar(mappable2, label='Residual counts per pixel', pad=0.01, ticks=np.arange(vmin, vmax+cbStep, cbStep))
+    cb2.ax.tick_params(width=0)
+    fig.tight_layout()
+    plt.subplots_adjust(wspace = 0.13, left=0.04, bottom=0.13, top=0.92)
+    plt.savefig('plots/residComparison.pdf',bbox_inches='tight')
+    #plt.show()
+
+def dataModel():
+    """
+    Making Figure 1 in the paper (Data versus model)
+    """
+    srcmap001 = fits.open('6gev_srcmap_001.fits')
+    srcmap03 = fits.open('6gev_srcmap_03.fits')
+
+    image_data = fits.getdata('6gev_image.fits')
+    filename = get_pkg_data_filename('6gev_image.fits')
+    hdu = fits.open(filename)[0]
+    wcs = WCS(hdu.header)
+
+    #Given the results of the fit, calculate the model
+    modelData001 = np.zeros(srcmap001[0].shape)
+    modelData03 = np.zeros(srcmap03[0].shape)
+
+    file = open('fitResults001.pk1','rb')
+    fit001 = pickle.load(file)
+    file.close()
+
+    file = open('fitResults03.pk1','rb')
+    fit03 = pickle.load(file)
+    file.close()
+
+
+    for source in fit001:
+        the_index = srcmap001.index_of(source)
+
+        modelData001 += fit001[source][:, None, None]*srcmap001[the_index].data[:-1, :, :]/np.sum(np.sum(srcmap001[the_index].data, axis=2), axis=1)[:-1, None, None]
+    for source in fit03:
+        the_index = srcmap03.index_of(source)
+        modelData03 += fit03[source][:, None, None]*srcmap03[the_index].data[:-1, :, :]/np.sum(np.sum(srcmap03[the_index].data, axis=2), axis=1)[:-1, None, None]
+
+    fig = plt.figure(figsize=[12, 4.5])
+
+    vmin = 0
+    vmax = 70.0
+    cbStep = 10.0
+    ax = fig.add_subplot(121, projection=wcs)
+    ax=plt.gca()
+    ax.tick_params(direction='in')
+    c = Wedge((gc_l, gc_b), 1.0, theta1=0.0, theta2=360.0, width=14.0, edgecolor='black', facecolor='#474747', transform=ax.get_transform('galactic'))
+    ax.add_patch(c)
+    mappable=plt.imshow((image_data),cmap='inferno',origin='lower',norm=colors.PowerNorm(gamma=0.6),vmin=vmin, vmax=vmax, interpolation='gaussian')#
+    plt.xlabel('Galactic Longitude')
+    plt.ylabel('Galactic Latitude')
+    plt.title('Data ($>6$ GeV)')
+    cb = plt.colorbar(mappable, label='Counts per pixel', pad=0.01,ticks=np.arange(vmin, vmax+cbStep, cbStep))
+    cb.ax.tick_params(width=0)
+
+
+    ax2=fig.add_subplot(122, projection=wcs)
+    ax2 = plt.gca()
+
+    sources = []
+    sources.append({
+    'Name':'3FGL J1745.3-2903c',
+    'RA':266.3434922,
+    'DEC':-29.06274323,
+    'color':'xkcd:bright light blue'})
+
+    sources.append({
+    'Name':'1FIG J1748.2-2816',
+    'RA':267.1000722,
+    'DEC':-28.27707114,
+    'color':'xkcd:fire engine red'
+    })
+
+    sources.append({
+    'Name':'1FIG J1746.4-2843',
+    'RA':266.5942898,
+    'DEC':-28.86244442,
+    'color':'xkcd:fluorescent green'
+    })
+
+    sources.append({
+    'Name':'Galactic Center',
+    'RA':266.417,
+    'DEC':-29.0079,
+    'color':'black'
+    })
+
+    #Add source names:
+    for source in sources:
+        l, b = ra_dec_to_l_b(source['RA'], source['DEC'])
+        ax2.scatter(l, b, color=source['color'],marker='x',s=45.0, transform=ax2.get_transform('galactic'), label=source['Name'])
+    
+    c2 = Wedge((gc_l, gc_b), 1.0, theta1=0.0, theta2=360.0, width=14.0, edgecolor='black', facecolor='#474747', transform=ax2.get_transform('galactic'))
+    ax2.add_patch(c2)
+    mappable2 = plt.imshow((np.sum(modelData03,axis=0)), cmap='inferno',norm=colors.PowerNorm(gamma=0.6),origin='lower',vmin=vmin, vmax=vmax, interpolation='gaussian')
+    plt.xlabel('Galactic Longitude')
+    plt.ylabel('Galactic Latitude')
+    plt.title('Model ($>6$ GeV)')
+    cb2 = plt.colorbar(mappable2, label='Counts per pixel', pad=0.01, ticks=np.arange(vmin, vmax+cbStep, cbStep))
+    cb2.ax.tick_params(width=0)
+    leg = plt.legend(loc=1,frameon=True)
+    leg.get_frame().set_alpha(0.5)
+    leg.get_frame().set_edgecolor('white')
+    text1 = leg.get_texts()
+    for text in text1:
+        text.set_color('black')
+
+    fig.tight_layout()
+    plt.subplots_adjust(wspace = 0.13, left=0.04, bottom=0.13, top=0.92)
+    #plt.show()
+    plt.savefig('plots/dataModelComparison.pdf',bbox_inches='tight')
+
+def tsDistribution():
+    file = open('brazil.pk1', 'rb')
+    g = pickle.load(file)
+    file.close()
+    bins = 10**np.linspace(-2.0, 1.2, 50)
+    h = np.histogram(-2.0*np.concatenate(g), bins=bins)
+    plt.fill_between(bins[:-1], 0.0, h[0]/np.diff(h[1]), step='pre', alpha=0.4, color='black', label='Monte Carlo Data')
+    plt.plot(bins, 3500.*chi_square_pdf(1.0, bins), label='$\chi^2$, 1 d.o.f.', linewidth=3.0)
+    plt.plot(bins, 3500.*chi_square_pdf(2.0, bins), label='$\chi^2$, 2 d.o.f.', linewidth=3.0)
+
+    #plt.plot(bins, 1000.*chi_square_pdf(1.0, bins)+1000.*chi_square_pdf(2.0, bins), label='k=1.5', linewidth=2.0)
+    plt.ylim([10**0, 10**4])
+    plt.xlim([10**-2, 10**1.2])
+    plt.grid('on', linestyle='--', linewidth=0.5, color='black')
+    plt.ylabel('Counts')
+    plt.xlabel('TS Value [$-2\Delta$log$\mathcal{L}$]')
+    rcParams['legend.fontsize'] = 16
+    plt.legend()
+    plt.yscale('log')
+    plt.xscale('log')
+    plt.savefig('plots/ts_hist.pdf',bbox_inches='tight')
+    plt.show()
+
+def main():
+    tsDistribution()
+    #residmapComparison()
+    #dataModel()
 if __name__=='__main__':
     main()

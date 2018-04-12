@@ -1,0 +1,11 @@
+6gev_ltcube.fits filter=lfs diff=lfs merge=lfs -text
+6gev_selected.fits filter=lfs diff=lfs merge=lfs -text
+6gev_srcmap_001.fits filter=lfs diff=lfs merge=lfs -text
+6gev_srcmap_03.fits filter=lfs diff=lfs merge=lfs -text
+box_srcmap_artificial_box.fits filter=lfs diff=lfs merge=lfs -text
+10gev_image.fits filter=lfs diff=lfs merge=lfs -text
+6gev_ccube.fits filter=lfs diff=lfs merge=lfs -text
+6gev_image.fits filter=lfs diff=lfs merge=lfs -text
+10gev_selected.fits filter=lfs diff=lfs merge=lfs -text
+6gev_exposure.fits filter=lfs diff=lfs merge=lfs -text
+disk_srcmap.fits filter=lfs diff=lfs merge=lfs -text
