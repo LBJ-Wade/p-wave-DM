@@ -374,7 +374,7 @@ def make_fgl_pk1():
     file = open('fgl.pk1','wb')
     pickle.dump(j,file)
     file.close()
-    print "Done!"
+    print("Done!")
 
 #Code to make a cool plot that overlays the catalog source locations on the data
 def make_overlay_plot(catalog):
@@ -532,8 +532,8 @@ def residmapComparison():
     cb2.ax.tick_params(width=0)
     fig.tight_layout()
     plt.subplots_adjust(wspace = 0.13, left=0.04, bottom=0.13, top=0.92)
-    plt.savefig('plots/residComparison.pdf',bbox_inches='tight')
-    #plt.show()
+    #plt.savefig('plots/residComparison.pdf',bbox_inches='tight')
+    plt.show()
 
 def dataModel():
     """
@@ -621,7 +621,7 @@ def dataModel():
     for source in sources:
         l, b = ra_dec_to_l_b(source['RA'], source['DEC'])
         ax2.scatter(l, b, color=source['color'],marker='x',s=45.0, transform=ax2.get_transform('galactic'), label=source['Name'])
-    
+
     c2 = Wedge((gc_l, gc_b), 1.0, theta1=0.0, theta2=360.0, width=14.0, edgecolor='black', facecolor='#474747', transform=ax2.get_transform('galactic'))
     ax2.add_patch(c2)
     mappable2 = plt.imshow((np.sum(modelData03,axis=0)), cmap='inferno',norm=colors.PowerNorm(gamma=0.6),origin='lower',vmin=vmin, vmax=vmax, interpolation='gaussian')
@@ -639,12 +639,12 @@ def dataModel():
 
     fig.tight_layout()
     plt.subplots_adjust(wspace = 0.13, left=0.04, bottom=0.13, top=0.92)
-    #plt.show()
-    plt.savefig('plots/dataModelComparison.pdf',bbox_inches='tight')
+    plt.show()
+    #plt.savefig('plots/dataModelComparison.pdf',bbox_inches='tight')
 
 def tsDistribution():
-    file = open('brazil.pk1', 'rb')
-    g = pickle.load(file)
+    file = open('savedMC_TS.npy', 'rb')
+    g = np.load(file)
     file.close()
     bins = 10**np.linspace(-2.0, 1.2, 50)
     h = np.histogram(-2.0*np.concatenate(g), bins=bins)
@@ -662,12 +662,12 @@ def tsDistribution():
     plt.legend()
     plt.yscale('log')
     plt.xscale('log')
-    plt.savefig('plots/ts_hist.pdf',bbox_inches='tight')
+    #plt.savefig('plots/ts_hist.pdf',bbox_inches='tight')
     plt.show()
 
 def main():
     tsDistribution()
-    #residmapComparison()
-    #dataModel()
+    residmapComparison()
+    dataModel()
 if __name__=='__main__':
     main()
