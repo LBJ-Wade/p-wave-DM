@@ -1,0 +1,67 @@
+<?xml version="1.0" standalone="no"?>
+<source_library title="source library">
+  <source name="1FIG J1746.4-2843" type="PointSource">
+    <spectrum type="PowerLaw">
+      <parameter error="2.868810273" free="1" max="10000000" min="0" name="Prefactor" scale="1e-11" value="16.03708803" />
+      <parameter error="0.07696673059" free="1" max="0" min="-10" name="Index" scale="1" value="-3.284837587" />
+      <parameter free="0" max="500000" min="30" name="Scale" scale="1" value="1018.349787" />
+    </spectrum>
+    <spatialModel type="SkyDirFunction">
+      <parameter free="0" max="360" min="-360" name="RA" scale="1" value="266.5942898" />
+      <parameter free="0" max="90" min="-90" name="DEC" scale="1" value="-28.86244442" />
+    </spatialModel>
+  </source>
+  <source name="1FIG J1748.2-2816" type="PointSource">
+    <spectrum type="PowerLaw">
+      <parameter error="2.142228007" free="1" max="10000000" min="0" name="Prefactor" scale="1e-11" value="7.152449271" />
+      <parameter error="0.1294496408" free="1" max="0" min="-10" name="Index" scale="1" value="-3.303679405" />
+      <parameter free="0" max="500000" min="30" name="Scale" scale="1" value="1018.349787" />
+    </spectrum>
+    <spatialModel type="SkyDirFunction">
+      <parameter free="0" max="360" min="-360" name="RA" scale="1" value="267.1000722" />
+      <parameter free="0" max="90" min="-90" name="DEC" scale="1" value="-28.27707114" />
+    </spatialModel>
+  </source>
+  <source name="3FGL J1745.3-2903c" type="PointSource">
+    <spectrum type="PowerLaw">
+      <parameter error="127.9358568" free="1" max="10000000" min="0" name="Prefactor" scale="1e-11" value="265.1967731" />
+      <parameter error="0.2481192207" free="1" max="0" min="-10" name="Index" scale="1" value="-5.076475035" />
+      <parameter free="0" max="500000" min="30" name="Scale" scale="1" value="1018.349787" />
+    </spectrum>
+    <spatialModel type="SkyDirFunction">
+      <parameter free="0" max="360" min="-360" name="RA" scale="1" value="266.3434922" />
+      <parameter free="0" max="90" min="-90" name="DEC" scale="1" value="-29.06274323" />
+    </spatialModel>
+  </source>
+  <source name="Box_Component" type="PointSource">
+    <spectrum file="box_spectrum.dat" type="FileFunction">
+      <parameter free="0" max="1e+15" min="0" name="Normalization" scale="1e-15" value="0" />
+    </spectrum>
+    <spatialModel type="SkyDirFunction">
+      <parameter free="0" max="360" min="-360" name="RA" scale="1" value="266.417" />
+      <parameter free="0" max="90" min="-90" name="DEC" scale="1" value="-29.0079" />
+    </spatialModel>
+  </source>
+  <source name="Disk Component" type="DiffuseSource">
+    <spectrum type="PowerLaw">
+      <parameter error="9076.146894" free="1" max="1e+15" min="0" name="Prefactor" scale="1e-11" value="203540.4623" />
+      <parameter error="0.002902095781" free="1" max="0" min="-6" name="Index" scale="1" value="-2.373612052" />
+      <parameter free="0" max="500000" min="30" name="Scale" scale="1" value="1018.349787" />
+    </spectrum>
+    <spatialModel file="gauss.dat" type="RadialProfile">
+      <parameter free="0" max="10" min="0" name="Normalization" scale="1" value="1" />
+      <parameter free="0" max="360" min="-360" name="RA" scale="1" value="266.417" />
+      <parameter free="0" max="90" min="-90" name="DEC" scale="1" value="-29.0079" />
+    </spatialModel>
+  </source>
+  <source name="gll_iem_v05" type="DiffuseSource">
+    <spectrum apply_edisp="false" type="PowerLaw">
+      <parameter error="0.2565779172" free="1" max="100000000" min="0" name="Prefactor" scale="1" value="1.218487389" />
+      <parameter error="0.08270118581" free="1" max="1" min="-6" name="Index" scale="1" value="-0.1607429471" />
+      <parameter free="0" max="2000" min="50" name="Scale" scale="1" value="1000.490013" />
+    </spectrum>
+    <spatialModel file="/Users/christian/physics/ScienceTools-v11r5p3-fssc-20180124/x86_64-apple-darwin17.4.0/refdata/fermi/galdiffuse/gll_iem_v06.fits" type="MapCubeFunction">
+      <parameter free="0" max="1000" min="0.001" name="Normalization" scale="1" value="1" />
+    </spatialModel>
+  </source>
+</source_library>
