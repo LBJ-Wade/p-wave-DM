@@ -95,6 +95,14 @@ def sigma_given_p(p):
 def poisson(x,k):
     return x**k*math.exp(-1.0*x)/math.gamma(k+1)
 
+def listToArray(dict):
+    """
+    A method to convert a dictionary's list entries to numpy arrays
+    """
+    for key in dict.keys():
+        dict[key] = np.array(dict[key])
+    return dict
+
 #Given an expected number of counts and an observed number of counts, what's the significance?
 #i.e. if we expect 10 counts and see 15, how many sigma deviation is that?
 def frequentist_counts_significance(observed_counts, mean_counts):
@@ -542,10 +550,12 @@ def residmapComparison():
 
     file = open('plotsData/fitResults001.pk1','rb')
     fit001 = pickle.load(file)
+    fit001 = listToArray(fit001)
     file.close()
 
     file = open('plotsData/fitResults03.pk1','rb')
     fit03 = pickle.load(file)
+    fit03 = listToArray(fit03)
     file.close()
 
 
@@ -597,8 +607,8 @@ def dataModel():
     srcmap001 = fits.open('dataFiles/6gev_srcmap_001.fits')
     srcmap03 = fits.open('dataFiles/6gev_srcmap_03.fits')
 
-    image_data = fits.getdata('6gev_image.fits')
-    filename = get_pkg_data_filename('6gev_image.fits')
+    image_data = fits.getdata('dataFiles/6gev_image.fits')
+    filename = get_pkg_data_filename('dataFiles/6gev_image.fits')
     hdu = fits.open(filename)[0]
     wcs = WCS(hdu.header)
 
@@ -608,10 +618,12 @@ def dataModel():
 
     file = open('plotsData/fitResults001.pk1','rb')
     fit001 = pickle.load(file)
+    fit001 = listToArray(fit001)
     file.close()
 
     file = open('plotsData/fitResults03.pk1','rb')
     fit03 = pickle.load(file)
+    fit03 = listToArray(fit03)
     file.close()
 
 
@@ -722,9 +734,9 @@ def tsDistribution():
     #plt.show()
 
 def main():
-    spectralPlot()
-    correlationPlot()
-    tsDistribution()
+    #spectralPlot()
+    #correlationPlot()
+    #tsDistribution()
     residmapComparison()
     dataModel()
     #add brazil plot code
