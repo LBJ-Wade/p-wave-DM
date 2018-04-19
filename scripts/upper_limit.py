@@ -192,26 +192,6 @@ class AnalyticAnalysis(BinnedAnalysis):
             spectrum += self._srcCnts(source)
         return spectrum
 
-    #Make a spectral plot showing fitted data
-    def spectralPlot(self, filename):
-        box_spectrum = self._srcCnts('Box_Component')
-        window_spectrum = self.getSpectrum()
-        complete_spectrum = self.nobs
-        #pedestal = likelihood_obj._srcCnts('Pedestal')
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
-        plt.plot(energies[:-1], window_spectrum, linewidth=2., color='blue', label='Reconstructed spectrum')
-        plt.errorbar(energies[:-1], complete_spectrum, xerr=0, yerr=np.sqrt(complete_spectrum), fmt='o', color='black',label='Data')
-        plt.plot(energies[:-1], box_spectrum, linewidth=2.0, color='red', ls='-.', label='Box Best Fit')
-        plt.legend()
-        ax.set_yscale('log')
-        ax.set_xscale('log')
-        ax.set_xlim([8000.0, 800000])
-        ax.set_ylim([10**-2, 10**3])
-        plt.title(filename)
-        plt.show()
-        #plt.savefig(filename, bbox_inches='tight')
-
     #Make a plot of the data/model/residuals
     def roiPlot(self):
         sourcemap = self.binnedData.srcMaps
@@ -221,7 +201,6 @@ class AnalyticAnalysis(BinnedAnalysis):
         filename = get_pkg_data_filename('6gev_image.fits')
         hdu = fits.open(filename)[0]
         wcs = WCS(hdu.header)
-
         #Given the results of the fit, calculate the model
         model_data = np.zeros(f[0].shape)
         for source in self.sourceNames():
@@ -231,7 +210,7 @@ class AnalyticAnalysis(BinnedAnalysis):
 
         fig = plt.figure(figsize=[14,6])
 
-        ax = fig.add_subplot(131, projection=wcs)
+        ax = fig.add_subplot(131, projection=wcs.wcs)
         ax=plt.gca()
 
         c = Wedge((gc_l, gc_b), 1.0, theta1=0.0, theta2=360.0, width=14.0, edgecolor='black', facecolor='#474747', transform=ax.get_transform('galactic'))
@@ -244,7 +223,7 @@ class AnalyticAnalysis(BinnedAnalysis):
         cax = divider.append_axes("right", size="5%", pad=0.05)
         cb = plt.colorbar(mappable, cax=cax, label='Counts per pixel')
 
-        ax2=fig.add_subplot(132, projection=wcs)
+        ax2=fig.add_subplot(132, projection=wcs.wcs)
         ax2 = plt.gca()
         c2 = Wedge((gc_l, gc_b), 1.0, theta1=0.0, theta2=360.0, width=14.0, edgecolor='black', facecolor='#474747', transform=ax2.get_transform('galactic'))
         ax2.add_patch(c2)
@@ -256,7 +235,7 @@ class AnalyticAnalysis(BinnedAnalysis):
         cax2 = divider2.append_axes("right", size="5%", pad=0.05)
         cb2 = plt.colorbar(mappable2, cax=cax2, label='Counts per pixel')
 
-        ax3=fig.add_subplot(133, projection=wcs)
+        ax3=fig.add_subplot(133, projection=wcs.wcs)
         ax3 = plt.gca()
         c3 = Wedge((gc_l, gc_b), 1.0, theta1=0.0, theta2=360.0, width=14.0, edgecolor='black', facecolor='#474747', transform=ax3.get_transform('galactic'))
         ax3.add_patch(c3)
@@ -307,55 +286,6 @@ class AnalyticAnalysis(BinnedAnalysis):
         fig.tight_layout()
         plt.show()
 
-
-def roiPlot():
-    sourcemap = '6gev_srcmap_03.fits'
-    f = fits.open(sourcemap)
-
-    image_data = fits.getdata('6gev_image.fits')
-    filename = get_pkg_data_filename('6gev_image.fits')
-    hdu = fits.open(filename)[0]
-    wcs = WCS(hdu.header)
-
-    file = open('image_data.pk1','rb')
-    [actual_data, model_data] = pickle.load(file)
-    file.close()
-
-    fig = plt.figure(figsize=[10,8])
-    ax = fig.add_subplot(111, projection=wcs)
-    ax=plt.gca()
-    c = Wedge((gc_l, gc_b), 1.0, theta1=0.0, theta2=360.0, width=14.0, edgecolor='black', facecolor='#474747', transform=ax.get_transform('galactic'))
-    ax.add_patch(c)
-    mappable=plt.imshow(np.sum(actual_data, axis=0),cmap='inferno',origin='lower',norm=colors.PowerNorm(gamma=0.6),vmin=0, vmax=65, interpolation='gaussian')#
-    plt.xlabel('Galactic Longitude')
-    plt.ylabel('Galactic Latitude')
-    cb = plt.colorbar(mappable, fraction=0.0458, pad = 0.01, label='Counts per pixel')
-    plt.tight_layout()
-    plt.savefig('/Users/christian/ROI_6gev.pdf',bbox_inches='tight')
-
-    fig = plt.figure(figsize=[10,8])
-    ax2=fig.add_subplot(111, projection=wcs)
-    ax2 = plt.gca()
-    c2 = Wedge((gc_l, gc_b), 1.0, theta1=0.0, theta2=360.0, width=14.0, edgecolor='black', facecolor='#474747', transform=ax2.get_transform('galactic'))
-    ax2.add_patch(c2)
-    mappable2 = plt.imshow(np.sum(model_data, axis=0), cmap='inferno',origin='lower',norm=colors.PowerNorm(gamma=0.6),vmin=0, vmax=65, interpolation='gaussian')
-    plt.xlabel('Galactic Longitude')
-    plt.ylabel('Galactic Latitude')
-    cb2 = plt.colorbar(mappable2,fraction=0.0458, pad = 0.01, label='Counts per pixel')
-    plt.tight_layout()
-    plt.savefig('/Users/christian/ROI_model_6gev.pdf',bbox_inches='tight')
-
-    fig = plt.figure(figsize=[10,8])
-    ax3=fig.add_subplot(111, projection=wcs)
-    ax3 = plt.gca()
-    c3 = Wedge((gc_l, gc_b), 1.0, theta1=0.0, theta2=360.0, width=14.0, edgecolor='black', facecolor='#474747', transform=ax3.get_transform('galactic'))
-    ax3.add_patch(c3)
-    mappable3 = plt.imshow(np.sum(actual_data, axis=0)-np.sum(model_data, axis=0), cmap='seismic',origin='lower', vmin=-20, vmax=20, interpolation='gaussian')#
-    plt.xlabel('Galactic Longitude')
-    plt.ylabel('Galactic Latitude')
-    cb3 = plt.colorbar(mappable3, fraction=0.0458, pad = 0.01, label='Counts per pixel')
-    plt.tight_layout()
-    plt.savefig('/Users/christian/residmap_6gev.pdf',bbox_inches='tight')
 
 #Strictly finds the Poisson upper limit (problematic for large counts)
 def upper_limit(N,conf,b):
@@ -528,7 +458,7 @@ def likelihood_upper_limit3(zeta, sourcemap, poisson=False):
     print("Loading data...")
     obs_complete = BinnedObs(srcMaps=sourcemap, expCube='6gev_ltcube.fits', binnedExpMap='6gev_exposure.fits', irfs='P8R2_SOURCE_V6')
     print("obs loaded")
-    like = BinnedAnalysis(obs_complete, 'xmlmodel.xml', optimizer='MINUIT')
+    like = AnalyticAnalysis(obs_complete, 'xmlmodel.xml', optimizer='MINUIT')
 
     #For MC study i.e. making Brazil plot bands
     if poisson:
@@ -551,27 +481,49 @@ def likelihood_upper_limit3(zeta, sourcemap, poisson=False):
         obs_poisson = BinnedObs(srcMaps='box_srcmap_poisson.fits', expCube='6gev_ltcube.fits', binnedExpMap='6gev_exposure.fits', irfs='P8R2_SOURCE_V6')
 
     #Loop through upper edge of box
-    for index in range(34,48):
+    for index in range(29,48):
         print("Evaluating box with upper edge " + str(energies[index]) + " MeV in bin " + str(index))
         #Update the box spectrum
         box_width, integrated_box_flux = update_box_spectrum(energies[index], zeta)
-        if poisson:
-            like = AnalyticAnalysis(obs_poisson, 'xmlmodel.xml', optimizer='NewMinuit')
-            print("Fitting...")
-            likeobj = pyLike.Minuit(like.logLike)
-            like.free_all_sources()
-            like.tol=1e-9
-            loglike = like.fit(verbosity=0,optObject=likeobj, covar=False)
-            print("Return code: " + str(likeobj.getRetCode()))
-            print("loglike = " + str(loglike))
-            while loglike> 18000.0:
+    	like.free_all_sources()
+    	#like.freeze(like.par_index('Box_Component','Normalization'))
+    	likeobj = pyLike.Minuit(like.logLike)
+    	loglike = like.fit(verbosity=0, optObject=likeobj, covar=False)
+
+    	#print('loglike = ' + str(loglike))
+    	#while loglike>15830.0:
+    	#    loglike = like.fit(verbosity=0, optObject=likeobj, covar=False)
+    	#    print('loglike = '+str(loglike))
+    	#like.freeze_all_sources()
+    	#print(dir(like))
+    	#myDict = {}
+            #for source in like.sourceNames():
+    	#    print(like._srcCnts(source))
+    	#    myDict[source] = like._srcCnts(source)
+    	#file = open('fitResults001.pk1','wb')
+    	#pickle.dump(myDict,file)
+    	#file.close()
+    	#input('wait for key')
+
+    	if poisson:
+                like = AnalyticAnalysis(obs_poisson, 'xmlmodel.xml', optimizer='NewMinuit')
+                print("Fitting...")
+                likeobj = pyLike.Minuit(like.logLike)
+                like.free_all_sources()
+                like.tol=1e-9
                 loglike = like.fit(verbosity=0,optObject=likeobj, covar=False)
                 print("Return code: " + str(likeobj.getRetCode()))
                 print("loglike = " + str(loglike))
-            like.freeze_all_sources()
-        like.spectralPlot('plots/'+str(index))
-        input('wait for key')
-        #like.writeXml('xmlmodel.xml')
+                while loglike> 18000.0:
+                    loglike = like.fit(verbosity=0,optObject=likeobj, covar=False)
+                    print("Return code: " + str(likeobj.getRetCode()))
+                    print("loglike = " + str(loglike))
+                like.freeze_all_sources()
+
+        #Output spectrum info
+        box_spectrum = self._srcCnts('Box_Component')
+        window_spectrum = self.getSpectrum()
+        complete_spectrum = self.nobs
 
         like.thaw(like.par_index('Disk Component','Prefactor'))
         print("Scanning likelihood...")
@@ -808,6 +760,7 @@ def main():
     #pickle.dump([z44_ul, z44_corr],file)
     #file.close()
 
+    #sourcemap = '6gev_srcmap_001.fits'
     sourcemap = 'box_srcmap_artificial_box.fits'
     [z44_artificial_ul, z44_artificial_corr] = likelihood_upper_limit3(0.44, sourcemap, poisson=False)
     #file = open('/nfs/farm/g/glast/u/johnsarc/p-wave_DM/6gev/z44_poisson.pk1','wb')

@@ -469,6 +469,61 @@ def make_overlay_plot(catalog):
     #plt.savefig('plots/'+catalog+'_overlay.png',bbox_inches='tight')
     plt.show()
 
+def spectralPlot():
+    file = open('../plotsData/goodBoxFit.npy','rb')
+    g = np.load(file)
+    file.close()
+
+    fig = plt.figure(figsize=[7,7])
+    ax = fig.add_subplot(111)
+    num_ebins = 51
+    energies = 10**np.linspace(np.log10(6000),np.log10(800000),num_ebins)
+
+    plt.plot(energies[:-1], g[0], linewidth=2., color='blue', label='Total Reconstructed Spectrum')
+    plt.errorbar(energies[:-1], g[1], xerr=0, yerr=np.sqrt(g[1]), fmt='o', color='black',label='Data + Injected Signal')
+    plt.plot(energies[:-1], g[2], linewidth=2.0, color='red', ls='-.', label='Reconstructed Signal')
+    rcParams['legend.fontsize'] = 16
+
+    plt.legend()
+    ax.set_yscale('log')
+    ax.set_xscale('log')
+    ax.set_xlim([8000.0, 800000])
+    ax.set_ylim([5*10**-1, 10**3])
+    #plt.title(filename)
+    plt.xlabel('Energy [MeV]')
+    plt.ylabel('Counts in the ROI')
+    plt.show()
+    #plt.savefig(filename+'.pdf', bbox_inches='tight')
+
+def correlationPlot():
+    fig = plt.figure(figsize=[7,7])
+    ax = fig.add_subplot(111)
+
+    file = open('../plotsData/wideBoxCorrelations.npy','rb')
+    correlation1 = np.load(file, encoding='latin1')
+    file.close()
+
+    file = open('../plotsData/narrowBoxCorrelations.npy','rb')
+    correlation2 = np.load(file, encoding='latin1')
+    file.close()
+    num_ebins = 51
+    energies = 10**np.linspace(np.log10(6000),np.log10(800000),num_ebins)
+
+    plt.plot(energies[6:48], correlation1[:,0][6:48], linewidth=2.0, color='blue', label='$\zeta=0.44$')
+    plt.plot(energies[6:48], correlation2[:,0][6:48], linewidth=2.0, color='red', label='$\zeta=0.9999$')
+    plt.axhline(0.0, color='black', linestyle='--', linewidth=0.5)
+    plt.xscale('log')
+    plt.ylim([-1.0, 0.1])
+    plt.xlim([energies[6], energies[47]])
+    plt.ylabel('Correlation Coefficient')
+    plt.xlabel('Box Upper Edge [MeV]')
+    rcParams['legend.fontsize'] = 16
+
+    plt.legend()
+    plt.grid(True)
+    plt.savefig('../plots/correlation_coefficients.pdf',bbox_inches='tight')
+    plt.show()
+
 def residmapComparison():
     """
     Making Figure 2 in the paper (comparing the residuals between the GC point source model and GC extended source model)
@@ -643,11 +698,12 @@ def dataModel():
     #plt.savefig('plots/dataModelComparison.pdf',bbox_inches='tight')
 
 def tsDistribution():
-    file = open('savedMC_TS.npy', 'rb')
+    file = open('../plotsData/savedMC_TS.npy', 'rb')
     g = np.load(file)
     file.close()
     bins = 10**np.linspace(-2.0, 1.2, 50)
     h = np.histogram(-2.0*np.concatenate(g), bins=bins)
+    fig = plt.figure(figsize=[7,7])
     plt.fill_between(bins[:-1], 0.0, h[0]/np.diff(h[1]), step='pre', alpha=0.4, color='black', label='Monte Carlo Data')
     plt.plot(bins, 3500.*chi_square_pdf(1.0, bins), label='$\chi^2$, 1 d.o.f.', linewidth=3.0)
     plt.plot(bins, 3500.*chi_square_pdf(2.0, bins), label='$\chi^2$, 2 d.o.f.', linewidth=3.0)
@@ -662,12 +718,15 @@ def tsDistribution():
     plt.legend()
     plt.yscale('log')
     plt.xscale('log')
-    #plt.savefig('plots/ts_hist.pdf',bbox_inches='tight')
+    plt.savefig('../plots/ts_hist.pdf',bbox_inches='tight')
     plt.show()
 
 def main():
+    spectralPlot()
+    correlationPlot()
     tsDistribution()
     residmapComparison()
     dataModel()
+    
 if __name__=='__main__':
     main()
