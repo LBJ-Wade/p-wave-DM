@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Wedge, Circle
 from scipy.special import gammainc
 from scipy.misc import factorial
+from scipy.signal import savgol_filter
+
 import math
 import pickle
 #from BinnedAnalysis import *
@@ -733,13 +735,142 @@ def tsDistribution():
     plt.savefig('plots/ts_hist.pdf',bbox_inches='tight')
     #plt.show()
 
+def brazilPlot(ulFile, brazilFile, plt_title):
+    num_ebins = 51
+    energies = 10**np.linspace(np.log10(6000),np.log10(800000),num_ebins)
+
+    file = open(brazilFile,'rb')
+    brazilData = np.load(file)
+    file.close()
+    mcLimits = np.zeros((len(brazilData),num_ebins-1))
+    i = 0
+    for entry in brazilData:
+        mcLimits[i,:] = entry
+        i += 1
+
+    file = open(ulFile, 'rb')
+    dataLimits = np.load(file)[:,0]
+    file.close()
+
+    trials = len(mcLimits)
+    lower_95 = np.zeros((num_ebins-1))
+    lower_68 = np.zeros((num_ebins-1))
+    upper_95 = np.zeros((num_ebins-1))
+    upper_68 = np.zeros((num_ebins-1))
+    median = np.zeros((num_ebins-1))
+    for i in range(num_ebins-1):
+        lims = mcLimits[:,i]
+        lims.sort()
+        lower_95[i] = lims[int(0.025*trials)]
+        upper_95[i] = lims[int(0.975*trials)]
+        lower_68[i] = lims[int(0.15865*trials)]
+        upper_68[i] = lims[int(0.84135*trials)]
+        median[i] = lims[int(0.5*trials)]
+    lower_95 = savgol_filter(lower_95[6:48],11,1)
+    upper_95 = savgol_filter(upper_95[6:48],11,1)
+    lower_68 = savgol_filter(lower_68[6:48],11,1)
+    upper_68 = savgol_filter(upper_68[6:48],11,1)
+    median = savgol_filter(median[6:48], 11, 1)
+
+
+    fig = plt.figure(figsize=[7,7])
+    ax = fig.add_subplot(111)
+    #Plotting uppper limit
+    #ax.plot(energies[:-1],median,color='black',linewidth=1,linestyle='--', label='Median MC')
+    ax.fill_between(energies[:-1][6:48], lower_95, upper_95, color='yellow', label='95\% Containment')
+    ax.fill_between(energies[:-1][6:48], lower_68, upper_68, color='#63ff00',label='68\% Containment')
+    ax.plot(energies[:-1][6:48],dataLimits[6:48], marker='.', markersize=13.0,color='black',linewidth=2, label='95\% Confidence Upper Limit')
+    ax.plot(energies[:-1][6:48], median, linestyle='--', linewidth=0.5, color='black', label='Median Expected')
+    rcParams['legend.fontsize'] = 16
+
+    #Uncomment the following line to show a dot where an injected signal lives
+    #ax.errorbar(np.array([1e5]), np.array([3.0*10**-10]), xerr=0, yerr=0.0, color='blue', markersize=10, fmt='o', label='Injected Signal')
+
+    ax.set_yscale('log')
+    ax.set_xscale('log')
+    plt.ylabel('Flux Upper Limit [ph s$^{-1}$ cm$^{-2}$]')
+    plt.xlabel('Energy [MeV]')
+    plt.legend(loc=1)
+
+    ax.set_xlim([energies[6], energies[47]])
+    ax.set_ylim([2*10**-12, 2*10**-9])
+    plt.savefig('plots/'+str(plt_title),bbox_inches='tight')
+    plt.show()
+
+def theoryPlotter():
+    ad_gammac1_z99 = [[19.6237, 4.57491*10**-6], [21.6411, 7.505*10**-6], [23.866, 9.17377*10**-6], [26.3195, 0.0000118648], [29.0253, 0.0000171208], [32.0092, 0.0000188892], [35.2999, 0.0000101674], [38.9289, 7.94083*10**-6], [42.931, -3.10589*10**-6], [47.3446, -4.73139*10**-6], [52.2118, 0.0000130573], [57.5795, 0.0000164174], [63.4989, 0.0000131265], [70.027, 0.0000130879], [77.2261, 0.0000262152], [85.1653, 0.0000570469], [93.9208, 0.0000740881], [103.576, 0.0000414739], [114.224, 0.0000241062], [125.967, 0.0000303306], [138.917, 0.000063084], [153.199, 0.00011705], [168.948, 0.000181654], [186.317, 0.000178264], [205.472, 0.000191036], [226.595, 0.000178923], [249.89, 0.000116762], [275.58, 0.0000671643], [303.911, 0.0000579031], [335.155, 0.000125408], [369.611, 0.000351548], [407.608, 0.000910204], [449.513, 0.00188837], [495.725, 0.00215645], [546.688, 0.00135476], [602.89, 0.000651263], [664.871, 0.000581901], [733.223, 0.000754332], [808.602, 0.000784346], [891.73, 0.000791298], [983.405, 0.00102506], [1084.5, 0.00115408]]
+
+    gammac1_gammasp18_z99 = [[19.6237, 1.67415], [21.6411, 4.10128], [23.866, 5.25415], [26.3195, 7.31753], [29.0253, 12.0055], [32.0092, 13.35], [35.2999, 5.35204], [38.9289, 1.74911], [42.931, 1.38417], [47.3446, 2.89916], [52.2118, 6.69735], [57.5795, 8.86803], [63.4989, 6.41571], [70.027, 5.91757], [77.2261, 15.4644], [85.1653, 46.0979], [93.9208, 65.0021], [103.576, 26.8298], [114.224, 12.196], [125.967, 16.1324], [138.917, 44.1432], [153.199, 104.859], [168.948, 189.835], [186.317, 178.596], [205.472, 190.311], [226.595, 167.165], [249.89, 86.3939], [275.58, 37.588], [303.911, 29.7895], [335.155, 85.5436], [369.611, 367.407], [407.608, 1275.23], [449.513, 3002.27], [495.725, 3451.53], [546.688, 1970.76], [602.89, 740.096], [664.871, 613.498], [733.223, 854.188], [808.602, 875.531], [891.73, 860.663], [983.405, 1196.09], [1084.5, 1369.16]]
+
+    gammac11_gammasp18_z99 = [[19.6237, 0.111146], [21.6411, 0.223189], [23.866, 0.274115], [26.3195, 0.358174], [29.0253, 0.528627], [32.0092, 0.584111], [35.2999, 0.30166], [38.9289, 0.130602], [42.931, 0.110338], [47.3446, 0.200723], [52.2118, 0.387185], [57.5795, 0.487799], [63.4989, 0.390219], [70.027, 0.374343], [77.2261, 0.786262], [85.1653, 1.81275], [93.9208, 2.39607], [103.576, 1.26186], [114.224, 0.714934], [125.967, 0.900329], [138.917, 1.94702], [153.199, 3.80263], [168.948, 6.10194], [186.317, 5.93387], [205.472, 6.35122], [226.595, 5.86606], [249.89, 3.64342], [275.58, 2.00177], [303.911, 1.71701], [335.155, 3.852], [369.611, 11.809], [407.608, 32.2455], [449.513, 66.8202], [495.725, 76.1656], [546.688, 48.1534], [602.89, 22.2645], [664.871, 19.5835], [733.223, 25.7694], [808.602, 26.7158], [891.73, 26.807], [983.405, 35.2308], [1084.5, 39.7951]]
+
+    ad_gammac1_z44 = [[12.3677, 4.5328*10**-8], [13.6392, 4.92245*10**-8], [15.0414, 6.53022*10**-8], [16.5877, 7.99851*10**-8], [18.293, 1.61246*10**-7], [20.1736, 2.72092*10**-7], [22.2476, 3.41284*10**-7], [24.5347, 2.35265*10**-7], [27.057, 1.06947*10**-7], [29.8386, 9.88366*10**-8], [32.9062, 1.08294*10**-7], [36.2891, 1.37662*10**-7], [40.0198, 1.4868*10**-7], [44.1341, 1.33551*10**-7], [48.6713, 1.62587*10**-7], [53.6749, 2.1685*10**-7], [59.193, 4.05485*10**-7], [65.2783, 5.27605*10**-7], [71.9893, 4.13017*10**-7], [79.3901, 4.36405*10**-7], [87.5519, 4.70944*10**-7], [96.5526, 7.01252*10**-7], [106.479, 1.29286*10**-6], [117.425, 1.39209*10**-6], [129.497, 2.31513*10**-6], [142.81, 3.13988*10**-6], [157.492, 2.8651*10**-6], [173.683, 2.759*10**-6], [191.538, 2.32976*10**-6], [211.229, 1.76462*10**-6], [232.945, 2.32342*10**-6], [256.893, 4.51366*10**-6], [283.303, 0.0000104844], [312.428, 0.000014779], [344.547, 0.0000158545], [379.968, 0.0000218529], [419.031, 0.0000217036], [462.109, 0.000023289], [509.616, 0.0000219583], [562.007, 0.0000193568], [619.785, 0.0000201716], [683.502, 0.0000216895]]
+
+    gammac1_gammasp18_z44 = [[12.3677, 0.0311172], [13.6392, 0.0334056], [15.0414, 0.0487918], [16.5877, 0.0627363], [18.293, 0.165286], [20.1736, 0.32949], [22.2476, 0.432963], [24.5347, 0.252774], [27.057, 0.0776391], [29.8386, 0.0665465], [32.9062, 0.0729151], [36.2891, 0.0994583], [40.0198, 0.10683], [44.1341, 0.087744], [48.6713, 0.112212], [53.6749, 0.164133], [59.193, 0.39173], [65.2783, 0.548714], [71.9893, 0.372005], [79.3901, 0.387081], [87.5519, 0.415329], [96.5526, 0.708119], [106.479, 1.59336], [117.425, 1.70699], [129.497, 3.22239], [142.81, 4.6039], [157.492, 4.02434], [173.683, 3.74601], [191.538, 2.92427], [211.229, 1.94054], [232.945, 2.73984], [256.893, 6.35318], [283.303, 16.9224], [312.428, 24.401], [344.547, 26.1407], [379.968, 36.463], [419.031, 36.0703], [462.109, 38.6656], [509.616, 36.1054], [562.007, 31.1699], [619.785, 32.2879], [683.502, 34.6359]]
+
+    gammac11_gammasp18_z44 = [[12.3677, 0.00140418], [13.6392, 0.00151401], [15.0414, 0.00205377], [16.5877, 0.002534], [18.293, 0.00539401], [20.1736, 0.00941955], [22.2476, 0.0119162], [24.5347, 0.00795346], [27.057, 0.00332454], [29.8386, 0.00303301], [32.9062, 0.00331839], [36.2891, 0.00427526], [40.0198, 0.00461245], [44.1341, 0.00407432], [48.6713, 0.00500496], [53.6749, 0.00679773], [59.193, 0.0133912], [65.2783, 0.0177044], [71.9893, 0.0134347], [79.3901, 0.014147], [87.5519, 0.0152479], [96.5526, 0.0233825], [106.479, 0.0449058], [117.425, 0.0483063], [129.497, 0.0819566], [142.81, 0.111654], [157.492, 0.101529], [173.683, 0.097363], [191.538, 0.0811893], [211.229, 0.0599185], [232.945, 0.0800218], [256.893, 0.159983], [283.303, 0.369216], [312.428, 0.512907], [344.547, 0.550989], [379.968, 0.745669], [419.031, 0.7468], [462.109, 0.802655], [509.616, 0.764985], [562.007, 0.682281], [619.785, 0.712444], [683.502, 0.766588]]
+
+    z99_lims = np.zeros((len(gammac11_gammasp18_z99), 4))
+    z44_lims = np.zeros((len(gammac11_gammasp18_z44), 4))
+
+    for i in range(len(gammac11_gammasp18_z99)):
+        z99_lims[i,0] = ad_gammac1_z99[i][0]
+        z99_lims[i,1] = ad_gammac1_z99[i][1]
+        z99_lims[i,2] = gammac1_gammasp18_z99[i][1]
+        z99_lims[i,3] = gammac11_gammasp18_z99[i][1]
+
+    for i in range(len(gammac11_gammasp18_z44)):
+        z44_lims[i,0] = ad_gammac1_z44[i][0]
+        z44_lims[i,1] = ad_gammac1_z44[i][1]
+        z44_lims[i,2] = gammac1_gammasp18_z44[i][1]
+        z44_lims[i,3] = gammac11_gammasp18_z44[i][1]
+
+    fig = plt.figure(figsize=[14,7])
+    ax = fig.add_subplot(121)
+    rcParams['legend.fontsize'] = 16
+
+    plt.plot(z44_lims[:,0], z44_lims[:,1], linewidth=2.0, color='green', label='Adiabatic Spike, $\gamma_c = 1.0$')
+    plt.plot(z44_lims[:,0], z44_lims[:,2], linewidth=2.0,label='$\gamma_{sp}=1.8$, $\gamma_c = 1.0$')
+    plt.plot(z44_lims[:,0], z44_lims[:,3], linewidth=2.0, label='$\gamma_{sp}=1.8$, $\gamma_c = 1.1$')
+    plt.xlabel('Energy [GeV]')
+    plt.ylabel('$\\frac{<\sigma v>}{<\sigma v>_{therm}}$')
+
+    plt.axhline(1.0, linestyle='--', color='black', linewidth=0.5)
+    plt.xscale('log')
+    plt.yscale('log')
+    plt.title('$\zeta = 0.44$')
+    plt.ylim([10**-8, 10**3])
+    plt.xlim([10**1, 1.2*10**3])
+
+    plt.legend(loc=2)
+    ax2 = fig.add_subplot(122)
+
+    plt.plot(z99_lims[:,0][:7], z99_lims[:,1][:7], linewidth=2.0, color='green', label='Adiabatic Spike, $\gamma_c = 1.0$')
+    plt.plot(z99_lims[:,0][10:], z99_lims[:,1][10:], linewidth=2.0, color='green')
+    plt.plot(z99_lims[:,0], z99_lims[:,2], linewidth=2.0,label='$\gamma_{sp}=1.8$, $\gamma_c = 1.0$')
+    plt.plot(z99_lims[:,0], z99_lims[:,3], linewidth=2.0, label='$\gamma_{sp}=1.8$, $\gamma_c = 1.1$')
+    plt.xlabel('Energy [GeV]')
+    plt.ylabel('$\\frac{<\sigma v>}{<\sigma v>_{therm}}$')
+
+    plt.axhline(1.0, linestyle='--', color='black', linewidth=0.5)
+    plt.xscale('log')
+    plt.yscale('log')
+    plt.legend(loc=2)
+    plt.title('$\zeta = 0.9999$')
+    plt.ylim([10**-6, 10**5])
+    plt.xlim([10**1, 1.2*10**3])
+
+    plt.show()
+
 def main():
-    #spectralPlot()
-    #correlationPlot()
-    #tsDistribution()
+    theoryPlotter()
+    brazilPlot('plotsData/wideBoxResults.npy','plotsData/wideBoxBrazil.npy', 'brazil_wide_box.pdf')
+    brazilPlot('plotsData/narrowBoxResults.npy','plotsData/narrowBoxBrazil.npy', 'brazil_narrow_box.pdf')
+    brazilPlot('plotsData/artificialBoxResults.npy','plotsData/artificialBoxBrazil.npy', 'brazil_artificial_box.pdf')
+    spectralPlot()
+    correlationPlot()
+    tsDistribution()
     residmapComparison()
     dataModel()
-    #add brazil plot code
-    #add theory plot code
 if __name__=='__main__':
     main()
