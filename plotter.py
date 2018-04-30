@@ -155,211 +155,6 @@ def l_b_to_ra_dec(l_input, b_input):
     return ra, dec
 
 
-def make_model_cubes():
-    models = ['few_src']#, '3fgl_disk', '1fig', '3fgl']
-    fs_srcmap = pyfits.open('few_sources_srcmap.fits')
-    file = open('models/high_tol_results.pk1','rb')
-    g = pickle.load(file)
-    file.close()
-
-    results = {}
-    my_arr = {}
-    for model in models:
-        my_arr[model] = np.zeros((28, 50, 50))
-        results[model]={}
-        sources = g[model]
-        for source in sources:
-            results[model][source] = np.zeros((28, 50, 50))
-            i = 3
-            while fs_srcmap[i].header['EXTNAME'] != source[:-1] and fs_srcmap[i].header['EXTNAME'] != source:
-                i += 1
-            for e_bin in np.arange(0, 25):
-                if g[model][source][e_bin]>0.0:
-                    results[model][source][e_bin,:,:] = fs_srcmap[i].data[e_bin]*g[model][source][e_bin]/sum(sum(fs_srcmap[i].data[e_bin]))
-
-        for source in results[model].keys():
-            my_arr[model] += results[model][source]
-    file = open('result_cube.pk1','wb')
-    pickle.dump(my_arr,file)
-    file.close()
-    return results
-
-#Make a residual map given a particular model (from the function make_model_cubes)
-def make_ROI_map(type):
-
-    obs_complete = BinnedObs(srcMaps='/Users/christian/physics/p-wave/6gev/6gev_srcmap_03.fits', expCube='/Users/christian/physics/p-wave/6gev/6gev_ltcube.fits', binnedExpMap='/Users/christian/physics/p-wave/6gev/6gev_exposure.fits', irfs='CALDB')
-
-    like = BinnedAnalysis(obs_complete, 'xmlmodel.xml', optimizer='NEWMINUIT')
-    sourcemap = like.binnedData.srcMaps
-    f = pyfits.open(sourcemap)
-
-    image_data = fits.getdata('6gev_image.fits')
-    filename = get_pkg_data_filename('6gev_image.fits')
-    hdu = fits.open(filename)[0]
-    wcs = WCS(hdu.header)
-
-    #Given the results of the fit, calculate the model
-    model_data = np.zeros(f[0].shape)
-    for source in like.sourceNames():
-        the_index = f.index_of(source)
-        model_data += like._srcCnts(source)[:, None, None]*f[the_index].data[:-1, :, :]/np.sum(np.sum(f[the_index].data, axis=2), axis=1)[:-1, None, None]
-    actual_data = np.array(like.binnedData.countsMap.data()).reshape(f[0].shape)
-
-    fig = plt.figure(figsize=[14,6])
-
-    ax = fig.add_subplot(131, projection=wcs)
-    ax=plt.gca()
-
-    c = Wedge((gc_l, gc_b), 1.0, theta1=0.0, theta2=360.0, width=14.0, edgecolor='black', facecolor='#474747', transform=ax.get_transform('galactic'))
-    ax.add_patch(c)
-    mappable=plt.imshow(np.sum(actual_data, axis=0),cmap='inferno',origin='lower',norm=colors.PowerNorm(gamma=0.6),vmin=0, vmax=65, interpolation='gaussian')#
-    plt.xlabel('Galactic Longitude')
-    plt.ylabel('Galactic Latitude')
-    plt.title('Data')
-    divider = make_axes_locatable(ax)
-    cax = divider.append_axes("right", size="5%", pad=0.05)
-    cb = plt.colorbar(mappable, cax=cax, label='Counts per pixel')
-
-    ax2=fig.add_subplot(132, projection=wcs)
-    ax2 = plt.gca()
-    c2 = Wedge((gc_l, gc_b), 1.0, theta1=0.0, theta2=360.0, width=14.0, edgecolor='black', facecolor='#474747', transform=ax2.get_transform('galactic'))
-    ax2.add_patch(c2)
-    mappable2 = plt.imshow(np.sum(model_data, axis=0), cmap='inferno',origin='lower',norm=colors.PowerNorm(gamma=0.6),vmin=0, vmax=65, interpolation='gaussian')
-    plt.xlabel('Galactic Longitude')
-    plt.ylabel('Galactic Latitude')
-    plt.title('Model')
-    divider2 = make_axes_locatable(ax2)
-    cax2 = divider2.append_axes("right", size="5%", pad=0.05)
-    cb2 = plt.colorbar(mappable2, cax=cax2, label='Counts per pixel')
-
-    ax3=fig.add_subplot(133, projection=wcs)
-    ax3 = plt.gca()
-    c3 = Wedge((gc_l, gc_b), 1.0, theta1=0.0, theta2=360.0, width=14.0, edgecolor='black', facecolor='#474747', transform=ax3.get_transform('galactic'))
-    ax3.add_patch(c3)
-    mappable3 = plt.imshow(np.sum(actual_data, axis=0)-np.sum(model_data, axis=0), cmap='seismic',origin='lower', vmin=-20, vmax=20, interpolation='gaussian')#
-    plt.xlabel('Galactic Longitude')
-    plt.ylabel('Galactic Latitude')
-    plt.title('Residuals')
-    divider3 = make_axes_locatable(ax3)
-    cax3 = divider3.append_axes("right", size="5%", pad=0.05)
-    cb3 = plt.colorbar(mappable3, cax=cax3, label='Counts per pixel')
-    fig.tight_layout()
-
-    plt.show()
-
-    #like.tol=1e-10
-    #like_obj = pyLike.Minuit(like.logLike)
-    #likelihood = like.fit(verbosity=3,optObject=like_obj)
-    #like.writeXml('xmlmodel.xml')
-    """
-    f = pyfits.open('6gev_srcmap_03.fits')
-    my_arr = np.zeros((50,50))
-    for source in like.sourceNames():
-        for j in range(3,9):
-            if source == f[j].header['EXTNAME']:
-                the_index = j
-        for bin in range(50):
-            num_photons = like._srcCnts(source)[bin]
-            model_counts = num_photons*f[the_index].data[bin]/np.sum(np.sum(f[the_index].data[bin]))
-            my_arr += model_counts
-    f.close()
-    print "likelihood = " + str(likelihood)
-    """
-    image_data = fits.getdata('6gev_image.fits')
-    filename = get_pkg_data_filename('6gev_image.fits')
-    hdu = fits.open(filename)[0]
-    wcs = WCS(hdu.header)
-    fig = plt.figure(figsize=[15,10])
-    """
-    ax=fig.add_subplot(131,projection=wcs)
-    plt.scatter([359.9442], [-00.0462], color='black',marker='x',s=45.0,transform=ax.get_transform('world'))
-    l, b = ra_dec_to_l_b(266.3434922, -29.06274323)
-    plt.scatter([l], [b], color='black',marker='x',s=45.0,transform=ax.get_transform('galactic'))
-    l, b = ra_dec_to_l_b(267.1000722, -28.27707114)
-    plt.scatter([l], [b], color='black',marker='x',s=45.0,transform=ax.get_transform('galactic'))
-    l, b = ra_dec_to_l_b(266.5942898, -28.86244442)
-    plt.scatter([l], [b], color='black',marker='x',s=45.0,transform=ax.get_transform('galactic'))
-    c = Wedge((gc_l, gc_b), 15.0, theta1=0.0, theta2=360.0, width=14.0, edgecolor='black', facecolor='#474747', transform=ax.get_transform('galactic'))
-    ax.add_patch(c)
-
-    mappable = plt.imshow(my_arr,cmap='inferno',interpolation='bicubic',origin='lower',norm=colors.PowerNorm(gamma=0.6))
-
-    cb = plt.colorbar(mappable,label='Counts per pixel')
-    mappable.set_clip_path(ax.coords.frame.patch)
-    plt.xlabel('Galactic Longitude')
-    plt.ylabel('Galactic Latitude')
-    ax.grid(color='white',ls='dotted')
-
-    ax=fig.add_subplot(132,projection=wcs)
-    c = Wedge((gc_l, gc_b), 15.0, theta1=0.0, theta2=360.0, width=14.0, edgecolor='black', facecolor='#474747', transform=ax.get_transform('galactic'))
-    ax.add_patch(c)
-    mappable = plt.imshow(image_data,cmap='inferno',interpolation='bicubic',origin='lower',norm=colors.PowerNorm(gamma=0.6))
-    cb = plt.colorbar(mappable,label='Counts per pixel')
-    mappable.set_clip_path(ax.coords.frame.patch)
-    plt.xlabel('Galactic Longitude')
-    plt.ylabel('Galactic Latitude')
-    ax.grid(color='white',ls='dotted')
-
-    resid = image_data-my_arr
-    resid_sigma = np.zeros((len(resid.ravel()), 1))
-    model_array = my_arr.ravel()
-    for q in range(len(resid_sigma)):
-        resid_sigma[q] = frequentist_counts_significance(float(resid.ravel()[q]), float(model_array[q]))
-    resid_sigma = np.reshape(resid_sigma,[50,50])
-
-
-    plt.scatter([359.9442], [-00.0462], color='black',marker='x',s=45.0,transform=ax.get_transform('world'))
-    l, b = ra_dec_to_l_b(266.3434922, -29.06274323)
-    plt.scatter([l], [b], color='black',marker='x',s=45.0,transform=ax.get_transform('galactic'))
-    l, b = ra_dec_to_l_b(267.1000722, -28.27707114)
-    plt.scatter([l], [b], color='black',marker='x',s=45.0,transform=ax.get_transform('galactic'))
-    l, b = ra_dec_to_l_b(266.5942898, -28.86244442)
-    plt.scatter([l], [b], color='black',marker='x',s=45.0,transform=ax.get_transform('galactic'))
-    """
-    kernel = np.array([[1.0, 1.0, 1.0],[1.0, 1.0, 1.0], [1.0, 1.0,1.0]])/9.0
-
-    ax=fig.add_subplot(111,projection=wcs)
-    ax=plt.gca()
-
-    c = Wedge((gc_l, gc_b), 1.0, theta1=0.0, theta2=360.0, width=14.0, edgecolor='black', facecolor='#474747', transform=ax.get_transform('galactic'))
-    ax.add_patch(c)
-    if type == 'Data':
-        mappable=plt.imshow(image_data,cmap='inferno',origin='lower',norm=colors.PowerNorm(gamma=0.6),vmin=0, vmax=65, interpolation='bicubic')#
-        cb = plt.colorbar(mappable,label='Counts per pixel')
-        mappable.set_clip_path(ax.coords.frame.patch)
-        plt.xlabel('Galactic Longitude')
-        plt.ylabel('Galactic Latitude')
-        ax.grid(color='white',ls='dotted')
-        plt.savefig('plots/6gev_ROI_03.pdf',bbox_inches='tight')
-        plt.show()
-
-    if type == 'Resid':
-        resid = image_data-my_arr
-        mappable=plt.imshow(resid, cmap='seismic',origin='lower', vmin=-20, vmax=20, interpolation='bicubic')#norm=colors.SymLogNorm(linthresh=5,linscale=1.0),
-        cb = plt.colorbar(mappable,label='Counts per pixel')
-        mappable.set_clip_path(ax.coords.frame.patch)
-        plt.xlabel('Galactic Longitude')
-        plt.ylabel('Galactic Latitude')
-        ax.grid(color='black',ls='dotted')
-        plt.savefig('plots/6gev_resid_03.pdf',bbox_inches='tight')
-
-    if type == 'Sigma':
-        mappable=plt.imshow(resid_sigma,cmap='seismic',origin='lower',vmin=-5.0,vmax=5.0, interpolation='bicubic')#norm=colors.SymLogNorm(linthresh=5,linscale=1.0),
-        cb = plt.colorbar(mappable,label='Counts per pixel')
-        mappable.set_clip_path(ax.coords.frame.patch)
-        plt.xlabel('Galactic Longitude')
-        plt.ylabel('Galactic Latitude')
-        ax.grid(color='white',ls='dotted')
-        plt.savefig('plots/6gev_sigma_03.pdf',bbox_inches='tight')
-
-    if type == 'Model':
-        mappable=plt.imshow(my_arr,cmap='inferno',origin='lower',norm=colors.PowerNorm(gamma=0.6), vmin=0, vmax=65, interpolation='bicubic')#
-        cb = plt.colorbar(mappable,label='Counts per pixel')
-        mappable.set_clip_path(ax.coords.frame.patch)
-        plt.xlabel('Galactic Longitude')
-        plt.ylabel('Galactic Latitude')
-        ax.grid(color='white',ls='dotted')
-        plt.savefig('plots/6gev_model_03.pdf',bbox_inches='tight')
 
 #0.04 degrees: 15798.5084759
 #0.03 degrees: 15797.2262217
@@ -368,116 +163,6 @@ def make_ROI_map(type):
 #pt source: 15808.1352914
 #code to make a python list of dictionaries of 3fgl sources
 
-def make_fgl_pk1():
-    g = pyfits.open('/Users/christian/physics/PBHs/3FGL.fits')
-    j = []
-    for entry in g[1].data:
-        if entry['SpectrumType'].split(' ')[0]=='LogParabola':
-            st = 'LogParabola'
-        if entry['SpectrumType'].split(' ')[0] == 'PowerLaw':
-            st= 'PL'
-        if entry['SpectrumType'].split(' ')[0] =='PLExpCutoff':
-            st = 'PE'
-        if entry['SpectrumType'].split(' ')[0] == 'PLSuperExpCutoff':
-            st = 'SE'
-        j.append({'src_name':entry['Source_Name'], 'L':entry['GLON'], 'B':entry['GLAT'], 'SpectrumType':st})
-    file = open('fgl.pk1','wb')
-    pickle.dump(j,file)
-    file.close()
-    print("Done!")
-
-#Code to make a cool plot that overlays the catalog source locations on the data
-def make_overlay_plot(catalog):
-    #catalog = '3fgl' or '1fig'
-
-    if catalog=='1fig':
-        file = open('fig.pk1','rb')
-        g=  pickle.load(file)
-        file.close()
-    if catalog == '3fgl':
-        file = open('fgl.pk1','rb')
-        g=  pickle.load(file)
-        file.close()
-    if catalog == 'few_src':
-        file = open('few_src.pk1', 'rb')
-        g = pickle.load(file)
-        file.close()
-
-    image_data = fits.getdata('10gev_image.fits')
-    filename = get_pkg_data_filename('10gev_image.fits')
-    hdu = fits.open(filename)[0]
-    wcs = WCS(hdu.header)
-
-    fig = plt.figure(figsize=[15,10])
-    plt.subplot(projection=wcs)
-    ax=plt.gca()
-    ax.grid(color='white',ls='dotted')
-
-    n_lp = 0
-    n_pl = 0
-    n_pe = 0
-    n_se = 0
-
-    for entry in g:
-        if entry['L']>180.0:
-            dist = np.sqrt((entry['L']-gc_l)**2+(entry['B']-gc_b)**2)
-        elif entry['L']<180:
-            dist = np.sqrt((entry['L']-(360.0-gc_l))**2+(entry['B']-gc_b)**2)
-
-        if dist<1.0:
-            if entry['SpectrumType']=='LogParabola' and n_lp ==0:
-                ax.scatter([float(entry['L'])], [float(entry['B'])], color='#49ff00',marker='x',s=45.0,transform=ax.get_transform('world'),label='LogParaboloa Sources')
-                n_lp+=1
-            elif entry['SpectrumType']=='LogParabola':
-                ax.scatter([float(entry['L'])], [float(entry['B'])], color='#49ff00',marker='x',s=45.0,transform=ax.get_transform('world'))
-                n_lp+=1
-
-            if entry['SpectrumType'] =='PowerLaw' and n_pl ==0:
-                ax.scatter([float(entry['L'])], [float(entry['B'])], color='c',marker='x',s=45.0,transform=ax.get_transform('world'),label='PowerLaw Sources')
-                n_pl +=1
-            elif entry['SpectrumType'] =='PowerLaw':
-                ax.scatter([float(entry['L'])], [float(entry['B'])], color='c',marker='x',s=45.0,transform=ax.get_transform('world'))
-                n_pl +=1
-
-            if entry['SpectrumType']=='PLSuperExpCutoff' and n_se ==0:
-                ax.scatter([float(entry['L'])], [float(entry['B'])], color='#b8b8b8',marker='x',s=45.0,transform=ax.get_transform('world'),label='PLSuperExpCutoff Sources')
-                n_se+=1
-            elif entry['SpectrumType']=='PLSuperExpCutoff':
-                ax.scatter([float(entry['L'])], [float(entry['B'])], color='#b8b8b8',marker='x',s=45.0,transform=ax.get_transform('world'))
-                n_se+=1
-
-            if entry['SpectrumType'] =='PLExpCutoff' and n_pe ==0:
-                ax.scatter([float(entry['L'])], [float(entry['B'])], color='#e3ff00',marker='x',s=45.0,transform=ax.get_transform('world'),label='PLExpCutoff Sources')
-                n_pe +=1
-            elif entry['SpectrumType'] =='PLExpCutoff':
-                ax.scatter([float(entry['L'])], [float(entry['B'])], color='#e3ff00',marker='x',s=45.0,transform=ax.get_transform('world'))
-                n_pe +=1
-
-    ax.scatter([359.9442], [-00.0462], color='black',marker='x',s=45.0,transform=ax.get_transform('world'))
-    c = Wedge((gc_l, gc_b), 15.0, theta1=0.0, theta2=360.0, width=14.0, edgecolor='black', facecolor='#474747', transform=ax.get_transform('galactic'))
-    ax.add_patch(c)
-    mappable = plt.imshow(image_data,cmap='inferno',interpolation='bicubic',origin='lower',norm=colors.PowerNorm(gamma=0.6))
-    cb = plt.colorbar(mappable,label='Counts per pixel')
-    """
-    leg = plt.legend(loc=1,frameon=True)
-    leg.get_frame().set_alpha(0.25)
-    leg.get_frame().set_edgecolor('white')
-
-    if catalog=='1fig':
-        text1 = leg.get_texts()
-        print text1[0]
-        dir(text1[0])
-        text1[0].set_color('white')
-    if catalog=='3fgl':
-        text1, text2 = leg.get_texts()
-        text1.set_color('white')
-        text2.set_color('white')
-    """
-
-    plt.xlabel('Galactic Longitude')
-    plt.ylabel('Galactic Latitude')
-    #plt.savefig('plots/'+catalog+'_overlay.png',bbox_inches='tight')
-    plt.show()
 
 def spectralPlot():
     file = open('plotsData/goodBoxFit.npy','rb')
@@ -503,7 +188,7 @@ def spectralPlot():
     plt.xlabel('Energy [MeV]')
     plt.ylabel('Counts in the ROI')
     #plt.show()
-    #plt.savefig(filename+'.pdf', bbox_inches='tight')
+    plt.savefig('plots/good_box_fit.pdf', bbox_inches='tight')
 
 def correlationPlot():
     fig = plt.figure(figsize=[7,7])
@@ -599,8 +284,8 @@ def residmapComparison():
     cb2.ax.tick_params(width=0)
     fig.tight_layout()
     plt.subplots_adjust(wspace = 0.13, left=0.04, bottom=0.13, top=0.92)
-    #plt.savefig('plots/residComparison.pdf',bbox_inches='tight')
-    plt.show()
+    plt.savefig('plots/residComparison.pdf',bbox_inches='tight')
+    #plt.show()
 
 def dataModel():
     """
@@ -699,6 +384,8 @@ def dataModel():
     plt.title('Model ($>6$ GeV)')
     cb2 = plt.colorbar(mappable2, label='Counts per pixel', pad=0.01, ticks=np.arange(vmin, vmax+cbStep, cbStep))
     cb2.ax.tick_params(width=0)
+    rcParams['legend.fontsize'] = 10
+
     leg = plt.legend(loc=1,frameon=True)
     leg.get_frame().set_alpha(0.5)
     leg.get_frame().set_edgecolor('white')
@@ -708,8 +395,8 @@ def dataModel():
 
     fig.tight_layout()
     plt.subplots_adjust(wspace = 0.13, left=0.04, bottom=0.13, top=0.92)
-    plt.show()
-    #plt.savefig('plots/dataModelComparison.pdf',bbox_inches='tight')
+    #plt.show()
+    plt.savefig('plots/dataModelComparison.pdf',bbox_inches='tight')
 
 def tsDistribution():
     file = open('plotsData/savedMC_TS.npy', 'rb')
@@ -784,31 +471,273 @@ def brazilPlot(ulFile, brazilFile, plt_title):
     rcParams['legend.fontsize'] = 16
 
     #Uncomment the following line to show a dot where an injected signal lives
-    #ax.errorbar(np.array([1e5]), np.array([3.0*10**-10]), xerr=0, yerr=0.0, color='blue', markersize=10, fmt='o', label='Injected Signal')
+    ax.errorbar(np.array([1e5]), np.array([3.0*10**-10]), xerr=0, yerr=0.0, color='blue', markersize=10, fmt='o', label='Injected Signal')
 
     ax.set_yscale('log')
     ax.set_xscale('log')
     plt.ylabel('Flux Upper Limit [ph s$^{-1}$ cm$^{-2}$]')
     plt.xlabel('Energy [MeV]')
-    plt.legend(loc=1)
+    plt.legend(loc=3)
 
     ax.set_xlim([energies[6], energies[47]])
     ax.set_ylim([2*10**-12, 2*10**-9])
     plt.savefig('plots/'+str(plt_title),bbox_inches='tight')
-    plt.show()
+    #plt.show()
 
 def theoryPlotter():
-    ad_gammac1_z99 = [[19.6237, 4.57491*10**-6], [21.6411, 7.505*10**-6], [23.866, 9.17377*10**-6], [26.3195, 0.0000118648], [29.0253, 0.0000171208], [32.0092, 0.0000188892], [35.2999, 0.0000101674], [38.9289, 7.94083*10**-6], [42.931, -3.10589*10**-6], [47.3446, -4.73139*10**-6], [52.2118, 0.0000130573], [57.5795, 0.0000164174], [63.4989, 0.0000131265], [70.027, 0.0000130879], [77.2261, 0.0000262152], [85.1653, 0.0000570469], [93.9208, 0.0000740881], [103.576, 0.0000414739], [114.224, 0.0000241062], [125.967, 0.0000303306], [138.917, 0.000063084], [153.199, 0.00011705], [168.948, 0.000181654], [186.317, 0.000178264], [205.472, 0.000191036], [226.595, 0.000178923], [249.89, 0.000116762], [275.58, 0.0000671643], [303.911, 0.0000579031], [335.155, 0.000125408], [369.611, 0.000351548], [407.608, 0.000910204], [449.513, 0.00188837], [495.725, 0.00215645], [546.688, 0.00135476], [602.89, 0.000651263], [664.871, 0.000581901], [733.223, 0.000754332], [808.602, 0.000784346], [891.73, 0.000791298], [983.405, 0.00102506], [1084.5, 0.00115408]]
+    ad_gammac1_z99 = [[19.62371415969091, 1.7519089067965915*10**-6], [21.641132498163635,
+       7.505354915564719*10**-6], [23.865951776090906,
+       3.382227677967238*10**-6], [26.319493872472727,
+       0.000011864830943523662], [29.025272664672727,
+       0.000017120772864963094], [32.00921937712727,
+       0.00001888879794471948], [35.29993109694545,
+       0.000010167395180778949], [38.92894483829091,
+       2.3007390583952284*10**-6], [42.931039781927275,
+       2.0645052779880693*10**-6], [47.34457058660001,
+       3.293618862496714*10**-6], [52.21183496636364,
+       5.320547623811047*10**-6], [57.57947905705454,
+       6.367015251029276*10**-6], [63.498944456109086,
+       5.644323802389934*10**-6], [70.02696122076362,
+       5.629507396437339*10**-6], [77.22609154872727,
+       9.433385358967202*10**-6], [85.16532935207273,
+       0.00005704693476946674], [93.92076147050909,
+       0.00007408808847413974], [103.5762968606,
+       0.00004147669164374839], [114.22447074945455,
+       9.964304433669993*10**-6], [125.96733145956364,
+       0.000030330673734611892], [138.91741840369093,
+       0.00006308395932769567], [153.19884062274545,
+       0.00011704974690483896], [168.94846620278182,
+       0.00018165428425927183], [186.31723397021815,
+       0.00017826375614803374], [205.47160003598182,
+       0.00019103568854747003], [226.59513305192723,
+       0.00017892273373828482], [249.89027346759997,
+       0.000116762017752119], [275.58027364783635,
+       0.000025250284240196542], [303.9113374441091,
+       0.000023521974783895208], [335.15497972505455,
+       0.00012540766446969927], [369.6106284786545,
+       0.0003515480401783166], [407.60849442385455,
+       0.0009102039141231921], [449.5127356330182,
+       0.0018883719332044608], [495.7249474937636,
+       0.0021564506758517503], [546.6880114567272,
+       0.0013547580818977097], [602.8903394544,
+       0.000651262624195416], [664.8705546677091,
+       0.0005819009590256931], [733.2226534998182,
+       0.0007543316791189843], [808.6016982268181,
+       0.0007843458021098378], [891.7300948823455,
+       0.0007912976582441107], [983.4045165408909,
+       0.0010250605430997452], [1084.5035383499455,
+       0.0011540784699198788]]
 
-    gammac1_gammasp18_z99 = [[19.6237, 1.67415], [21.6411, 4.10128], [23.866, 5.25415], [26.3195, 7.31753], [29.0253, 12.0055], [32.0092, 13.35], [35.2999, 5.35204], [38.9289, 1.74911], [42.931, 1.38417], [47.3446, 2.89916], [52.2118, 6.69735], [57.5795, 8.86803], [63.4989, 6.41571], [70.027, 5.91757], [77.2261, 15.4644], [85.1653, 46.0979], [93.9208, 65.0021], [103.576, 26.8298], [114.224, 12.196], [125.967, 16.1324], [138.917, 44.1432], [153.199, 104.859], [168.948, 189.835], [186.317, 178.596], [205.472, 190.311], [226.595, 167.165], [249.89, 86.3939], [275.58, 37.588], [303.911, 29.7895], [335.155, 85.5436], [369.611, 367.407], [407.608, 1275.23], [449.513, 3002.27], [495.725, 3451.53], [546.688, 1970.76], [602.89, 740.096], [664.871, 613.498], [733.223, 854.188], [808.602, 875.531], [891.73, 860.663], [983.405, 1196.09], [1084.5, 1369.16]]
+    gammac1_gammasp18_z99 = [[19.62371415969091, 1.6741543737182027], [21.641132498163635,
+       4.10127800034358], [23.865951776090906,
+       5.2541475775535105], [26.319493872472727,
+       7.317529242917945], [29.025272664672727,
+       12.005454001222029], [32.00921937712727,
+       13.349956684511463], [35.29993109694545,
+       5.352040089225467], [38.92894483829091,
+       1.7491083700931236], [42.931039781927275,
+       1.3841729422045932], [47.34457058660001,
+       2.8991630437459444], [52.21183496636364,
+       6.697350581717526], [57.57947905705454,
+       8.868032437104791], [63.498944456109086,
+       6.415711407919814], [70.02696122076362,
+       5.917565966388773], [77.22609154872727,
+       15.464441897660212], [85.16532935207273,
+       46.097892319372605], [93.92076147050909,
+       65.00210881747354], [103.5762968606,
+       26.82979011574997], [114.22447074945455,
+       12.196025528876234], [125.96733145956364,
+       16.13244499672941], [138.91741840369093,
+       44.14315341020613], [153.19884062274545,
+       104.85862571326975], [168.94846620278182,
+       189.8352169228327], [186.31723397021815,
+       178.59561579235628], [205.47160003598182,
+       190.31072745218344], [226.59513305192723,
+       167.1645284032327], [249.89027346759997,
+       86.39393455181767], [275.58027364783635,
+       37.58798185821111], [303.9113374441091,
+       29.789471117977268], [335.15497972505455,
+       85.5436178148422], [369.6106284786545,
+       367.4068125001968], [407.60849442385455,
+       1275.225755645213], [449.5127356330182,
+       3002.266636108816], [495.7249474937636,
+       3451.533115637383], [546.6880114567272,
+       1970.7562904186802], [602.8903394544,
+       740.0963174535189], [664.8705546677091,
+       613.4979772022668], [733.2226534998182,
+       854.188246325088], [808.6016982268181,
+       875.5314382539169], [891.7300948823455,
+       860.6634704369059], [983.4045165408909,
+       1196.0949821640443], [1084.5035383499455, 1369.158914959045]]
 
-    gammac11_gammasp18_z99 = [[19.6237, 0.111146], [21.6411, 0.223189], [23.866, 0.274115], [26.3195, 0.358174], [29.0253, 0.528627], [32.0092, 0.584111], [35.2999, 0.30166], [38.9289, 0.130602], [42.931, 0.110338], [47.3446, 0.200723], [52.2118, 0.387185], [57.5795, 0.487799], [63.4989, 0.390219], [70.027, 0.374343], [77.2261, 0.786262], [85.1653, 1.81275], [93.9208, 2.39607], [103.576, 1.26186], [114.224, 0.714934], [125.967, 0.900329], [138.917, 1.94702], [153.199, 3.80263], [168.948, 6.10194], [186.317, 5.93387], [205.472, 6.35122], [226.595, 5.86606], [249.89, 3.64342], [275.58, 2.00177], [303.911, 1.71701], [335.155, 3.852], [369.611, 11.809], [407.608, 32.2455], [449.513, 66.8202], [495.725, 76.1656], [546.688, 48.1534], [602.89, 22.2645], [664.871, 19.5835], [733.223, 25.7694], [808.602, 26.7158], [891.73, 26.807], [983.405, 35.2308], [1084.5, 39.7951]]
+    gammac11_gammasp18_z99 = [[19.62371415969091, 0.11114613808565094], [21.641132498163635,
+       0.22318920233125392], [23.865951776090906,
+       0.2741149802484227], [26.319493872472727,
+       0.3581740541338847], [29.025272664672727,
+       0.5286267856638609], [32.00921937712727,
+       0.5841114387297436], [35.29993109694545,
+       0.30166041381773057], [38.92894483829091,
+       0.1306017088894787], [42.931039781927275,
+       0.11033811068671748], [47.34457058660001,
+       0.2007232725583842], [52.21183496636364,
+       0.3871850495730075], [57.57947905705454,
+       0.4877993284934702], [63.498944456109086,
+       0.3902192674043927], [70.02696122076362,
+       0.37434279065094495], [77.22609154872727,
+       0.7862623079814158], [85.16532935207273,
+       1.8127451264332433], [93.92076147050909,
+       2.396069696949687], [103.5762968606,
+       1.2618611309918417], [114.22447074945455,
+       0.7149343846841241], [125.96733145956364,
+       0.9003288022048542], [138.91741840369093,
+       1.9470199575042801], [153.19884062274545,
+       3.8026269603733307], [168.94846620278182,
+       6.101937066218874], [186.31723397021815,
+       5.933871100944506], [205.47160003598182,
+       6.351215776283767], [226.59513305192723,
+       5.866064608583633], [249.89027346759997,
+       3.6434193487102786], [275.58027364783635,
+       2.001773781675013], [303.9113374441091,
+       1.717006094110431], [335.15497972505455,
+       3.851998787549225], [369.6106284786545,
+       11.809009936793004], [407.60849442385455,
+       32.24546861487769], [449.5127356330182,
+       66.82017286161988], [495.7249474937636,
+       76.16559060112496], [546.6880114567272,
+       48.15342330104234], [602.8903394544,
+       22.26450164596166], [664.8705546677091,
+       19.583500548042185], [733.2226534998182,
+       25.769393012599643], [808.6016982268181,
+       26.715765363572505], [891.7300948823455,
+       26.806990077169175], [983.4045165408909,
+       35.230834073953694], [1084.5035383499455, 39.79512849932865]]
 
-    ad_gammac1_z44 = [[12.3677, 4.5328*10**-8], [13.6392, 4.92245*10**-8], [15.0414, 6.53022*10**-8], [16.5877, 7.99851*10**-8], [18.293, 1.61246*10**-7], [20.1736, 2.72092*10**-7], [22.2476, 3.41284*10**-7], [24.5347, 2.35265*10**-7], [27.057, 1.06947*10**-7], [29.8386, 9.88366*10**-8], [32.9062, 1.08294*10**-7], [36.2891, 1.37662*10**-7], [40.0198, 1.4868*10**-7], [44.1341, 1.33551*10**-7], [48.6713, 1.62587*10**-7], [53.6749, 2.1685*10**-7], [59.193, 4.05485*10**-7], [65.2783, 5.27605*10**-7], [71.9893, 4.13017*10**-7], [79.3901, 4.36405*10**-7], [87.5519, 4.70944*10**-7], [96.5526, 7.01252*10**-7], [106.479, 1.29286*10**-6], [117.425, 1.39209*10**-6], [129.497, 2.31513*10**-6], [142.81, 3.13988*10**-6], [157.492, 2.8651*10**-6], [173.683, 2.759*10**-6], [191.538, 2.32976*10**-6], [211.229, 1.76462*10**-6], [232.945, 2.32342*10**-6], [256.893, 4.51366*10**-6], [283.303, 0.0000104844], [312.428, 0.000014779], [344.547, 0.0000158545], [379.968, 0.0000218529], [419.031, 0.0000217036], [462.109, 0.000023289], [509.616, 0.0000219583], [562.007, 0.0000193568], [619.785, 0.0000201716], [683.502, 0.0000216895]]
+    ad_gammac1_z44 = [[12.367726508757421, 4.572243046321556*10**-8], [13.63919214777667,
+       4.922447038634083*10**-8], [15.041370967591332,
+       6.530216803758764*10**-8], [16.58770095277349,
+       7.998510036928272*10**-8], [18.293001581533392,
+       1.612463891418304*10**-7], [20.173615850372954,
+       2.7209238641201575*10**-7], [22.247566899531275,
+       3.412835448447508*10**-7], [24.53473074039463,
+       2.3526545911253564*10**-7], [27.05702674013187,
+       1.0694729125534346*10**-7], [29.838627689165882,
+       9.883660884295661*10**-8], [32.906191464548634,
+       1.0818976277088064*10**-7], [36.28911650971545,
+       1.3766244259243824*10**-7], [40.01982357861175,
+       1.4868018926291016*10**-7], [44.13406644481045,
+       1.3355055189139007*10**-7], [48.67127455294964,
+       1.625868696923608*10**-7], [53.674930896531,
+       2.168504142122272*10**-7], [59.192988743563824,
+       4.0548481445589616*10**-7], [65.27833120363529,
+       5.276047716294315*10**-7], [71.98927804088372,
+       4.1301740356775224*10**-7], [79.39014458995852,
+       4.36404779047023*10**-7], [87.55185813135263,
+       4.7094414955924204*10**-7], [96.5526376333376,
+       7.012520071059242*10**-7], [106.47874337479462,
+       1.292855794424257*10**-6], [117.42530363314877,
+       1.3920915849512129*10**-6], [129.49722636001957,
+       2.3151282401902424*10**-6], [142.810204581877,
+       3.139877920032032*10**-6], [157.4918251609183,
+       2.8651032453741363*10**-6], [173.68279154238627,
+       2.759002069209858*10**-6], [191.5382722063983,
+       2.3297616273146083*10**-6], [211.22938774771177,
+       1.764619912963226*10**-6], [232.94485083479975,
+       2.323422869605002*10**-6], [256.89277476512177,
+       4.513660508416061*10**-6], [283.30266794918055,
+       0.000010484445430619742], [312.42763343774516,
+       0.000014779044408273449], [344.5467945717235,
+       0.000015854549378042235], [379.9679700013215,
+       0.000021852867566831194], [419.03062371071525,
+       0.000021703609438901914], [462.10911832064687,
+       0.00002328895255820392], [509.61630284690233,
+       0.00002195829879121422], [562.0074692989141,
+       0.00001935682243773189], [619.7847160369625,
+       0.00002017157111621277], [683.5017597047544,
+       0.000021689468044349526]]
 
-    gammac1_gammasp18_z44 = [[12.3677, 0.0311172], [13.6392, 0.0334056], [15.0414, 0.0487918], [16.5877, 0.0627363], [18.293, 0.165286], [20.1736, 0.32949], [22.2476, 0.432963], [24.5347, 0.252774], [27.057, 0.0776391], [29.8386, 0.0665465], [32.9062, 0.0729151], [36.2891, 0.0994583], [40.0198, 0.10683], [44.1341, 0.087744], [48.6713, 0.112212], [53.6749, 0.164133], [59.193, 0.39173], [65.2783, 0.548714], [71.9893, 0.372005], [79.3901, 0.387081], [87.5519, 0.415329], [96.5526, 0.708119], [106.479, 1.59336], [117.425, 1.70699], [129.497, 3.22239], [142.81, 4.6039], [157.492, 4.02434], [173.683, 3.74601], [191.538, 2.92427], [211.229, 1.94054], [232.945, 2.73984], [256.893, 6.35318], [283.303, 16.9224], [312.428, 24.401], [344.547, 26.1407], [379.968, 36.463], [419.031, 36.0703], [462.109, 38.6656], [509.616, 36.1054], [562.007, 31.1699], [619.785, 32.2879], [683.502, 34.6359]]
+    gammac1_gammasp18_z44 = [[12.367726508757421, 0.031117199823673756], [13.63919214777667,
+       0.03340561082859777], [15.041370967591332,
+       0.0487917958794043], [16.58770095277349,
+       0.06273631010925741], [18.293001581533392,
+       0.1652862624050908], [20.173615850372954,
+       0.32949021272673196], [22.247566899531275,
+       0.43296311125733034], [24.53473074039463,
+       0.25277379135765693], [27.05702674013187,
+       0.07763912382620994], [29.838627689165882,
+       0.06654649485822436], [32.906191464548634,
+       0.07291512022086541], [36.28911650971545,
+       0.0994582971232782], [40.01982357861175,
+       0.10683014709074272], [44.13406644481045,
+       0.08774400631106534], [48.67127455294964,
+       0.11221223366013969], [53.674930896531,
+       0.16413304480224397], [59.192988743563824,
+       0.3917303053091287], [65.27833120363529,
+       0.5487136501671481], [71.98927804088372,
+       0.3720052977619624], [79.39014458995852,
+       0.3870809663371225], [87.55185813135263,
+       0.41532931264255096], [96.5526376333376,
+       0.7081188205649004], [106.47874337479462,
+       1.5933642965154815], [117.42530363314877,
+       1.7069864031329234], [129.49722636001957,
+       3.2223867986604255], [142.810204581877,
+       4.603900806026818], [157.4918251609183,
+       4.024340119198074], [173.68279154238627,
+       3.7460131279910738], [191.5382722063983,
+       2.924270827941011], [211.22938774771177,
+       1.9405438170872915], [232.94485083479975,
+       2.7398365245675906], [256.89277476512177,
+       6.353180796951084], [283.30266794918055,
+       16.922370093084915], [312.42763343774516,
+       24.4009601331479], [344.5467945717235,
+       26.14067915835634], [379.9679700013215,
+       36.46302796455312], [419.03062371071525,
+       36.0703458066954], [462.10911832064687,
+       38.66558029561192], [509.61630284690233,
+       36.10538425385185], [562.0074692989141,
+       31.169915257501582], [619.7847160369625,
+       32.28793145369989], [683.5017597047544, 34.63585711080077]]
 
-    gammac11_gammasp18_z44 = [[12.3677, 0.00140418], [13.6392, 0.00151401], [15.0414, 0.00205377], [16.5877, 0.002534], [18.293, 0.00539401], [20.1736, 0.00941955], [22.2476, 0.0119162], [24.5347, 0.00795346], [27.057, 0.00332454], [29.8386, 0.00303301], [32.9062, 0.00331839], [36.2891, 0.00427526], [40.0198, 0.00461245], [44.1341, 0.00407432], [48.6713, 0.00500496], [53.6749, 0.00679773], [59.193, 0.0133912], [65.2783, 0.0177044], [71.9893, 0.0134347], [79.3901, 0.014147], [87.5519, 0.0152479], [96.5526, 0.0233825], [106.479, 0.0449058], [117.425, 0.0483063], [129.497, 0.0819566], [142.81, 0.111654], [157.492, 0.101529], [173.683, 0.097363], [191.538, 0.0811893], [211.229, 0.0599185], [232.945, 0.0800218], [256.893, 0.159983], [283.303, 0.369216], [312.428, 0.512907], [344.547, 0.550989], [379.968, 0.745669], [419.031, 0.7468], [462.109, 0.802655], [509.616, 0.764985], [562.007, 0.682281], [619.785, 0.712444], [683.502, 0.766588]]
+    gammac11_gammasp18_z44 = [[12.367726508757421, 0.0014041768628856913], [13.63919214777667,
+       0.001514005245664142], [15.041370967591332,
+       0.002053773609724553], [16.58770095277349,
+       0.002533999497336025], [18.293001581533392,
+       0.005394013111094231], [20.173615850372954,
+       0.009419546500315294], [22.247566899531275,
+       0.011916163837922832], [24.53473074039463,
+       0.007953459501943547], [27.05702674013187,
+       0.0033245438533888254], [29.838627689165882,
+       0.0030330087548210457], [32.906191464548634,
+       0.003318389798714779], [36.28911650971545,
+       0.004275263620124581], [40.01982357861175,
+       0.004612453666697448], [44.13406644481045,
+       0.0040743201835337], [48.67127455294964,
+       0.0050049563336473125], [53.674930896531,
+       0.006797733932612226], [59.192988743563824,
+       0.013391225448710525], [65.27833120363529,
+       0.017704438719911647], [71.98927804088372,
+       0.013434713612055026], [79.39014458995852,
+       0.014147043597238293], [87.55185813135263,
+       0.01524788510669293], [96.5526376333376,
+       0.023382451358294715], [106.47874337479462,
+       0.04490582920997797], [117.42530363314877,
+       0.0483062643141049], [129.49722636001957,
+       0.08195656589589397], [142.810204581877,
+       0.11165363698207256], [157.4918251609183,
+       0.10152903144263443], [173.68279154238627,
+       0.09736302759020458], [191.5382722063983,
+       0.08118926834561083], [211.22938774771177,
+       0.05991852951760792], [232.94485083479975,
+       0.08002184040190713], [256.89277476512177,
+       0.15998343843954374], [283.30266794918055,
+       0.3692164744031358], [312.42763343774516,
+       0.5129074562099667], [344.5467945717235,
+       0.5509890037771349], [379.9679700013215,
+       0.7456693839385872], [419.03062371071525,
+       0.7468004583125385], [462.10911832064687,
+       0.8026546332873739], [509.61630284690233,
+       0.7649846272235171], [562.0074692989141,
+       0.6822813672176398], [619.7847160369625,
+       0.7124435181799437], [683.5017597047544, 0.7665876298129901]]
 
     z99_lims = np.zeros((len(gammac11_gammasp18_z99), 4))
     z44_lims = np.zeros((len(gammac11_gammasp18_z44), 4))
@@ -839,14 +768,13 @@ def theoryPlotter():
     plt.xscale('log')
     plt.yscale('log')
     plt.title('$\zeta = 0.44$')
-    plt.ylim([10**-8, 10**3])
+    plt.ylim([10**-8, 10**5])
     plt.xlim([10**1, 1.2*10**3])
 
     plt.legend(loc=2)
     ax2 = fig.add_subplot(122)
 
-    plt.plot(z99_lims[:,0][:7], z99_lims[:,1][:7], linewidth=2.0, color='green', label='Adiabatic Spike, $\gamma_c = 1.0$')
-    plt.plot(z99_lims[:,0][10:], z99_lims[:,1][10:], linewidth=2.0, color='green')
+    plt.plot(z99_lims[:,0], z99_lims[:,1], linewidth=2.0, color='green', label='Adiabatic Spike, $\gamma_c = 1.0$')
     plt.plot(z99_lims[:,0], z99_lims[:,2], linewidth=2.0,label='$\gamma_{sp}=1.8$, $\gamma_c = 1.0$')
     plt.plot(z99_lims[:,0], z99_lims[:,3], linewidth=2.0, label='$\gamma_{sp}=1.8$, $\gamma_c = 1.1$')
     plt.xlabel('Energy [GeV]')
@@ -857,20 +785,22 @@ def theoryPlotter():
     plt.yscale('log')
     plt.legend(loc=2)
     plt.title('$\zeta = 0.9999$')
-    plt.ylim([10**-6, 10**5])
+    plt.ylim([10**-8, 10**5])
     plt.xlim([10**1, 1.2*10**3])
 
-    plt.show()
+    #plt.show()
 
 def main():
-    theoryPlotter()
-    brazilPlot('plotsData/wideBoxResults.npy','plotsData/wideBoxBrazil.npy', 'brazil_wide_box.pdf')
-    brazilPlot('plotsData/narrowBoxResults.npy','plotsData/narrowBoxBrazil.npy', 'brazil_narrow_box.pdf')
+    #theoryPlotter()
+    #brazilPlot('plotsData/wideBoxResults.npy','plotsData/wideBoxBrazil.npy', 'brazil_wide_box.pdf')
+    #brazilPlot('plotsData/narrowBoxResults.npy','plotsData/narrowBoxBrazil.npy', 'brazil_narrow_box.pdf')
     brazilPlot('plotsData/artificialBoxResults.npy','plotsData/artificialBoxBrazil.npy', 'brazil_artificial_box.pdf')
-    spectralPlot()
-    correlationPlot()
-    tsDistribution()
-    residmapComparison()
+    #spectralPlot()
+    #correlationPlot()
+    #tsDistribution()
+    #residmapComparison()
     dataModel()
+    plt.show()
+
 if __name__=='__main__':
     main()
