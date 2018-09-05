@@ -34,7 +34,7 @@
     </spatialModel>
   </source>
   <source name="Box_Component" type="PointSource">
-    <spectrum file="box_spectrum.dat" type="FileFunction">
+    <spectrum file="dataFiles/box_spectrum.dat" type="FileFunction">
       <parameter free="0" max="1e+15" min="0" name="Normalization" scale="1e-15" value="0" />
     </spectrum>
     <spatialModel type="SkyDirFunction">
@@ -48,7 +48,7 @@
       <parameter error="0.002902095781" free="1" max="0" min="-6" name="Index" scale="1" value="-2.373612052" />
       <parameter free="0" max="500000" min="30" name="Scale" scale="1" value="1018.349787" />
     </spectrum>
-    <spatialModel file="gauss.dat" type="RadialProfile">
+    <spatialModel file="dataFiles/gauss.dat" type="RadialProfile">
       <parameter free="0" max="10" min="0" name="Normalization" scale="1" value="1" />
       <parameter free="0" max="360" min="-360" name="RA" scale="1" value="266.417" />
       <parameter free="0" max="90" min="-90" name="DEC" scale="1" value="-29.0079" />
